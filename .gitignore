@@ -1,0 +1,11 @@
+/vendor/
+/.env
+/.env.local
+/var/log/*
+!/var/log/.gitkeep
+/keys/private.pem
+/keys/public.pem
+/.idea/
+/.vscode/
+.DS_Store
+*.log

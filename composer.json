@@ -1,0 +1,35 @@
+{
+  "name": "tracht-digital-solutions/tds-auth-api",
+  "description": "JWT auth micro-backend (admin + customer login) for TDS",
+  "type": "project",
+  "license": "proprietary",
+  "require": {
+    "php": ">=8.1",
+    "ext-openssl": "*",
+    "slim/slim": "^4.13",
+    "slim/psr7": "^1.6",
+    "php-di/php-di": "^7.0",
+    "vlucas/phpdotenv": "^5.6",
+    "firebase/php-jwt": "^6.10",
+    "ramsey/uuid": "^4.7"
+  },
+  "require-dev": {
+    "robmorgan/phinx": "^0.16"
+  },
+  "autoload": {
+    "psr-4": {
+      "Tds\\AuthApi\\": "src/"
+    }
+  },
+  "config": {
+    "sort-packages": true,
+    "optimize-autoloader": true,
+    "preferred-install": "dist"
+  },
+  "scripts": {
+    "start": "php -S localhost:8003 -t public",
+    "migrate": "phinx migrate -e local",
+    "migrate:prod": "phinx migrate -e production",
+    "keygen": "php bin/keygen.php"
+  }
+}
