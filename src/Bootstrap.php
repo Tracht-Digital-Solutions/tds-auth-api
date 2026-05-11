@@ -11,6 +11,7 @@ use Slim\Factory\AppFactory;
 use Tds\AuthApi\Action\Admin\LoginAction as AdminLoginAction;
 use Tds\AuthApi\Action\Admin\LogoutAction as AdminLogoutAction;
 use Tds\AuthApi\Action\Customer\LoginAction as CustomerLoginAction;
+use Tds\AuthApi\Action\HealthAction;
 use Tds\AuthApi\Action\JwksAction;
 use Tds\AuthApi\Action\RefreshAction;
 use Tds\AuthApi\Infrastructure\Database;
@@ -62,6 +63,7 @@ final class Bootstrap
         $app->addRoutingMiddleware();
         $app->addErrorMiddleware(self::env('APP_ENV') !== 'production', true, true);
 
+        $app->get('/healthz', HealthAction::class);
         $app->post('/admin/login', AdminLoginAction::class);
         $app->delete('/admin/login', AdminLogoutAction::class);
         $app->post('/customer/login', CustomerLoginAction::class);

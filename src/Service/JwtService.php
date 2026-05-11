@@ -76,6 +76,21 @@ final class JwtService
         return $claims;
     }
 
+    /**
+     * Cheap self-check for /healthz — confirms the configured
+     * private key parses as a usable RSA key. Doesn't actually sign
+     * (that needs a real subject and produces a token we'd just
+     * throw away).
+     */
+    public function keyHealth(): bool
+    {
+        try {
+            return openssl_pkey_get_private($this->privateKeyPem) !== false;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     public function refreshTtl(): int
     {
         return $this->refreshTtlSeconds;
