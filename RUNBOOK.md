@@ -117,8 +117,6 @@ deploy, then start the slow rollout for the next planned rotation.
 - Do we want a scheduled rotation? If yes, six months feels
   reasonable. There's no monitoring / cron that nags about it
   today — manually note the date.
-- Should `keys/public.pem` be checked into the repo so JWKS can
-  serve from disk without a fresh key-gen step on every fresh
-  clone? Currently `composer keygen` writes both files and the
-  public key is meant to be committed; the README should call
-  this out (TODO).
+- `keys/public.pem` is committed (only the private key is
+  gitignored) so a fresh clone serves JWKS without re-running
+  `composer keygen`. Documented in `AGENTS.md`.
