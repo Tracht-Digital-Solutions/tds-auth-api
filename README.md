@@ -11,9 +11,10 @@ JWKS endpoint without seeing the private key.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/admin/login` | shared `ADMIN_TOKEN` | Issue admin JWT (cookie + body) |
+| `POST` | `/admin/login` | shared `ADMIN_TOKEN` (body) | Issue admin JWT (cookie + body) |
 | `DELETE` | `/admin/login` | session | Revoke session + clear cookie |
-| `POST` | `/customer/login` | n/a | **Stub** — Phase 8 implements |
+| `POST` | `/admin/customer-credentials` | Bearer `ADMIN_TOKEN` | Server-to-server: store an argon2id credential for a customer (called by tds-customer-api during onboarding) |
+| `POST` | `/customer/login` | n/a | Email + password → customer JWT (cookie + body) |
 | `POST` | `/refresh` | session | Rotate access token |
 | `GET` | `/.well-known/jwks.json` | none | Publish public key for verification |
 

@@ -8,6 +8,7 @@ use Dotenv\Dotenv;
 use PDO;
 use Slim\App;
 use Slim\Factory\AppFactory;
+use Tds\AuthApi\Action\Admin\CreateCustomerCredentialAction;
 use Tds\AuthApi\Action\Admin\LoginAction as AdminLoginAction;
 use Tds\AuthApi\Action\Admin\LogoutAction as AdminLogoutAction;
 use Tds\AuthApi\Action\Customer\LoginAction as CustomerLoginAction;
@@ -16,6 +17,7 @@ use Tds\AuthApi\Action\JwksAction;
 use Tds\AuthApi\Action\RefreshAction;
 use Tds\AuthApi\Infrastructure\Database;
 use Tds\AuthApi\Infrastructure\PdoSessionRepository;
+use Tds\AuthApi\Middleware\AdminAuthMiddleware;
 use Tds\AuthApi\Middleware\CorsMiddleware;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
@@ -63,9 +65,12 @@ final class Bootstrap
         $app->addRoutingMiddleware();
         $app->addErrorMiddleware(self::env('APP_ENV') !== 'production', true, true);
 
+        $admin = new AdminAuthMiddleware(self::env('ADMIN_TOKEN', ''));
+
         $app->get('/healthz', HealthAction::class);
         $app->post('/admin/login', AdminLoginAction::class);
         $app->delete('/admin/login', AdminLogoutAction::class);
+        $app->post('/admin/customer-credentials', CreateCustomerCredentialAction::class)->add($admin);
         $app->post('/customer/login', CustomerLoginAction::class);
         $app->post('/refresh', RefreshAction::class);
         $app->get('/.well-known/jwks.json', JwksAction::class);

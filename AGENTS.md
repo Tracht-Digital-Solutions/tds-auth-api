@@ -7,8 +7,15 @@ without ever seeing the private key.
 ## Endpoints
 
 - `POST /admin/login` — Phase-2 bridge: shared ADMIN_TOKEN → JWT.
-- `DELETE /admin/login` — revoke session + clear cookie.
-- `POST /customer/login` — STUB until Phase 8.
+- `DELETE /admin/login` — revoke session + clear cookie (works for
+  either admin or customer JWTs — the route name is historical).
+- `POST /admin/customer-credentials` — server-to-server, gated by
+  AdminAuthMiddleware. Called by tds-customer-api after a customer
+  row is inserted; we argon2id-hash the temp password into
+  `customer_credential`.
+- `POST /customer/login` — email + password → customer JWT. Looks
+  up `customer_credential`, verifies with `password_verify`, runs a
+  dummy verify on miss for constant-time behavior.
 - `POST /refresh` — rotate access token (verifies signature + checks
   session revocation).
 - `GET /.well-known/jwks.json` — public key in JWKS format.
