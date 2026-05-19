@@ -1,5 +1,13 @@
 # tds-auth-api
 
+> **Setting this up from scratch?** See [`INSTALL.md`](INSTALL.md) for
+> the step-by-step bring-up (composer → MariaDB → JWT keypair → env →
+> migrate → smoke test → manual deploy). This README documents the
+> endpoints, auth model, and runbook for ongoing operation.
+
+---
+
+
 JWT auth micro-backend. PHP 8.3 + Slim 4 + firebase/php-jwt + RS256.
 Deploys to **netcup Webhosting 8000** at
 `https://api.tracht-digital.de/auth/`.
