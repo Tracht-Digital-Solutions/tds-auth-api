@@ -54,19 +54,22 @@ curl -X POST http://localhost:8003/admin/login \
 
 ## Deploy
 
-Push to `main`. GitHub Actions excludes `keys/private.pem` from the
-upload (the private key lives in netcup's `.env` only). Then it
-SFTPs the release dir, drops `.deploy-complete`, and hits
-`install.php?action=install-php&target=auth&migrate=1`.
+Auto-deploy via GitHub Actions was removed. Deploy by hand:
 
-## Required GitHub secrets / vars
+1. `composer install --no-dev --optimize-autoloader`
+2. SFTP the project (excluding `keys/private.pem` — the private key
+   lives in netcup's `.env` only) to
+   `~/sites/api.tracht-digital.de/auth/releases/<TS>/`
+3. Drop `.deploy-complete` in the release dir
+4. Hit `install.php?action=install-php&target=auth&release=<TS>&migrate=1&token=<INSTALL_TOKEN>`
 
-- `secrets.NETCUP_FTP_HOST` / `NETCUP_FTP_USER` / `NETCUP_FTP_PASSWORD`
-- `secrets.INSTALL_TOKEN`
-- `vars.INSTALLER_URL`
+## Required env on netcup
 
-Plus on netcup (`~/sites/api.tracht-digital.de/auth/shared/.env`):
+`~/sites/api.tracht-digital.de/auth/shared/.env`:
 - `JWT_PRIVATE_KEY` (multi-line PEM, with `\n` escapes if your env
   loader needs single-line)
 - `ADMIN_TOKEN` (shared admin secret — strong, 32+ chars)
 - DB creds for `tds_auth`
+
+The five legacy Repository Secrets (`NETCUP_FTP_*`, `INSTALL_TOKEN`)
+and the `INSTALLER_URL` variable are unused now and can be cleaned up.
