@@ -116,7 +116,50 @@ curl -sX POST http://localhost:8001/admin/login \
 # 200 OK with JWT in body + Set-Cookie
 ```
 
-## 7. Production deployment (manual)
+## 7. Tests
+
+Pure unit tests cover the JWT issue/verify round-trip, RS256 signing,
+cookie-factory output, the admin/refresh/JWKS actions, the
+`AdminAuthMiddleware`, and the customer/admin login flows that don't
+need a database. They generate a fresh RSA keypair per test run so no
+secrets leak into the suite:
+
+```bash
+composer test
+```
+
+The following are **integration tests** that exercise real MariaDB —
+`PdoSessionRepositoryTest`, `Customer\LoginActionTest`,
+`Admin\CreateCustomerCredentialActionTest`. Without `TDS_TEST_DB_DSN`
+set they skip cleanly.
+
+Spin up a throwaway test DB (port `3399` so it doesn't clash with the
+four per-repo dev DBs):
+
+```bash
+docker run --rm -d \
+  --name tds-test-maria \
+  -e MARIADB_ROOT_PASSWORD=test \
+  -e MARIADB_DATABASE=tds_test \
+  -p 3399:3306 \
+  mariadb:11
+```
+
+Export the connection and re-run the suite:
+
+```bash
+export TDS_TEST_DB_DSN="mysql:host=127.0.0.1;port=3399;dbname=tds_test;charset=utf8mb4"
+export TDS_TEST_DB_USER=root
+export TDS_TEST_DB_PASS=test
+composer test
+```
+
+The integration tests drop + recreate the tables they touch on every
+run, so no `composer migrate` against the test DB is needed. The same
+container can be reused by every TDS API's test suite — just don't run
+two of them in parallel against it (the schemas overlap).
+
+## 8. Production deployment (manual)
 
 Auto-deploy was removed; deploy by hand to netcup:
 
@@ -167,3 +210,12 @@ its host.
 The DB existed before with a different schema. Drop + recreate:
 `docker exec -it tds-auth-maria mariadb -uroot -pdev -e 'DROP DATABASE tds_auth_local; CREATE DATABASE tds_auth_local;'`
 then re-run `composer migrate`.
+
+**`composer test` fails with `Cannot find PHPUnit`.**
+You installed with `--no-dev`. Re-run plain `composer install` to
+pull `phpunit/phpunit` from `require-dev`.
+
+**`composer test` fails generating an RSA keypair.**
+The `openssl` PHP extension is missing or the system OpenSSL is too
+old. `php -m | grep openssl` should list it. On Debian-derived:
+`sudo apt install php8.3-openssl`.

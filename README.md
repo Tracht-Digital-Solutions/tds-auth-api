@@ -49,6 +49,7 @@ composer keygen          # writes keys/{private,public}.pem
 cp .env.example .env     # paste private key contents into JWT_PRIVATE_KEY
 composer migrate
 composer start           # http://localhost:8003
+composer test            # run the PHPUnit suite (see INSTALL.md §7)
 ```
 
 Quick test:
