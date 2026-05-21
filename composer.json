@@ -14,11 +14,17 @@
     "ramsey/uuid": "^4.7"
   },
   "require-dev": {
+    "phpunit/phpunit": "^10.5",
     "robmorgan/phinx": "^0.16"
   },
   "autoload": {
     "psr-4": {
       "Tds\\AuthApi\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tds\\AuthApi\\Tests\\": "tests/"
     }
   },
   "config": {
@@ -28,6 +34,7 @@
   },
   "scripts": {
     "start": "php -S localhost:8003 -t public",
+    "test": "phpunit",
     "migrate": "phinx migrate -e local",
     "migrate:prod": "phinx migrate -e production",
     "keygen": "php bin/keygen.php"

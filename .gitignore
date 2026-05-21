@@ -7,5 +7,6 @@
 /keys/public.pem
 /.idea/
 /.vscode/
+/.phpunit.cache/
 .DS_Store
 *.log
