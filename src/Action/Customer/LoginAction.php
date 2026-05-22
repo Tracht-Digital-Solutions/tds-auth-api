@@ -9,6 +9,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
+use Tds\AuthApi\Service\RateLimiter;
 use Tds\AuthApi\Service\SessionRepository;
 
 /**
@@ -33,6 +34,7 @@ final class LoginAction
         private readonly JwtService $jwt,
         private readonly SessionRepository $sessions,
         private readonly CookieFactory $cookies,
+        private readonly RateLimiter $rateLimiter,
     ) {
         // Hash a fixed throwaway value once at construction. The cost
         // is one argon2id hash per FPM worker startup, much cheaper
@@ -44,6 +46,17 @@ final class LoginAction
 
     public function __invoke(ServerRequestInterface $request, Response $response): ResponseInterface
     {
+        // Rate-limit BEFORE validating the payload — payload validation
+        // is cheap and an attacker probing with garbage bodies should
+        // still pay the limiter cost.
+        $bucket = 'customer:' . $this->clientIp($request);
+        $rl = $this->rateLimiter->check($bucket);
+        if (!$rl['allowed']) {
+            return $this->json($response, 429, [
+                'error' => 'Too many login attempts. Please try again later.',
+            ]);
+        }
+
         $body = $request->getParsedBody();
         $email = is_array($body) ? strtolower(trim((string) ($body['email'] ?? ''))) : '';
         $password = is_array($body) ? (string) ($body['password'] ?? '') : '';
@@ -84,6 +97,19 @@ final class LoginAction
         $stmt->execute(['email' => $email]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return is_array($row) ? $row : false;
+    }
+
+    private function clientIp(ServerRequestInterface $request): string
+    {
+        $forwarded = $request->getHeaderLine('X-Forwarded-For');
+        if ($forwarded !== '') {
+            return trim(explode(',', $forwarded)[0]);
+        }
+        $real = $request->getHeaderLine('X-Real-IP');
+        if ($real !== '') {
+            return $real;
+        }
+        return $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown';
     }
 
     /** @param array<string,mixed> $payload */

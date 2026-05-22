@@ -21,6 +21,8 @@ use Tds\AuthApi\Middleware\AdminAuthMiddleware;
 use Tds\AuthApi\Middleware\CorsMiddleware;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
+use Tds\AuthApi\Service\PdoRateLimiter;
+use Tds\AuthApi\Service\RateLimiter;
 use Tds\AuthApi\Service\SessionRepository;
 
 final class Bootstrap
@@ -42,6 +44,12 @@ final class Bootstrap
         ]));
 
         $container->set(SessionRepository::class, fn (Container $c) => new PdoSessionRepository($c->get(PDO::class)));
+
+        $container->set(RateLimiter::class, fn (Container $c) => new PdoRateLimiter(
+            pdo: $c->get(PDO::class),
+            limit: (int) self::env('LOGIN_RATE_LIMIT', '10'),
+            windowSeconds: (int) self::env('LOGIN_RATE_WINDOW_SECONDS', '900'),
+        ));
 
         $container->set(JwtService::class, fn () => new JwtService(
             privateKeyPem: self::loadPrivateKey($rootDir),

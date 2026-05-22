@@ -11,6 +11,7 @@ use Slim\Psr7\Response;
 use Tds\AuthApi\Action\Customer\LoginAction;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
+use Tds\AuthApi\Tests\Support\FakeRateLimiter;
 use Tds\AuthApi\Tests\Support\FakeSessionRepository;
 use Tds\AuthApi\Tests\Support\Keys;
 
@@ -24,6 +25,7 @@ final class LoginActionTest extends TestCase
     private JwtService $jwt;
     private FakeSessionRepository $sessions;
     private CookieFactory $cookies;
+    private FakeRateLimiter $rateLimiter;
 
     protected function setUp(): void
     {
@@ -68,6 +70,7 @@ final class LoginActionTest extends TestCase
         );
         $this->sessions = new FakeSessionRepository();
         $this->cookies = new CookieFactory('tds_session', '.local', secure: false);
+        $this->rateLimiter = new FakeRateLimiter();
     }
 
     public function test_malformed_payload_returns_400(): void
@@ -133,13 +136,30 @@ final class LoginActionTest extends TestCase
         $stmt->execute([$customerId, $email, $hash]);
     }
 
+    public function test_rate_limit_blocked_returns_429_before_lookup(): void
+    {
+        $this->seed('user@example.com', 'correct-password', customerId: 7);
+        $this->rateLimiter = new FakeRateLimiter(allowed: false, remaining: 0);
+
+        $response = $this->login(['email' => 'user@example.com', 'password' => 'correct-password']);
+
+        self::assertSame(429, $response->getStatusCode());
+        self::assertSame([], $this->sessions->sessions, 'session must not be issued when rate-limited');
+    }
+
     /** @param array<string,mixed> $payload */
     private function login(array $payload): ResponseInterface
     {
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/customer/login')
             ->withParsedBody($payload);
-        $action = new LoginAction($this->pdo, $this->jwt, $this->sessions, $this->cookies);
+        $action = new LoginAction(
+            $this->pdo,
+            $this->jwt,
+            $this->sessions,
+            $this->cookies,
+            $this->rateLimiter,
+        );
         return $action($request, new Response());
     }
 
