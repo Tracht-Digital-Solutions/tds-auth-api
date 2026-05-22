@@ -50,6 +50,25 @@ machine. After step (a), feel free to `rm` the file.
 - `CookieFactory` builds `Domain=.tracht-digital.de` cookies so the
   same JWT works across `admin.` and `app.` subdomains.
 
+## Tests
+
+PHPUnit 10. `composer test` runs the suite.
+
+- **JwtService** — issue/verify round-trip, RS256 signature, iss/exp
+  enforcement, JWK extraction. `tests/Support/Keys` generates a
+  throwaway 2048-bit RSA keypair per test run via `openssl_pkey_new`,
+  so the real `JWT_PRIVATE_KEY` never appears in the suite.
+- **CookieFactory**, **AdminAuthMiddleware**, **JwksAction**,
+  **RefreshAction**, **Admin\\LoginAction**, **Admin\\LogoutAction**
+  — driven directly with Slim PSR-7 objects and a
+  `FakeSessionRepository`. No DB.
+- **Integration tests** (`Customer\\LoginAction`,
+  `Admin\\CreateCustomerCredentialAction`,
+  `PdoSessionRepository`) exercise real MariaDB. Set
+  `TDS_TEST_DB_DSN` (+ `_USER` / `_PASS`) to run; otherwise they skip.
+
+See INSTALL.md §7 for the throwaway-Docker test DB recipe.
+
 ## Don't
 
 - Don't issue JWTs without recording the jti in `session`. Future
