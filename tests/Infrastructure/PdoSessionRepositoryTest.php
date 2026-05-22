@@ -88,4 +88,36 @@ final class PdoSessionRepositoryTest extends TestCase
         self::assertSame(99, (int) $row['customer_id']);
         self::assertSame(0, (int) $row['admin']);
     }
+
+    public function test_list_active_returns_unrevoked_unexpired_sessions(): void
+    {
+        $this->repo->record('jti-active', 1, false, time() + 900);
+        $this->repo->record('jti-revoked', 2, false, time() + 900);
+        $this->repo->revoke('jti-revoked');
+        // expired
+        $this->pdo->exec(
+            "INSERT INTO session (jti, customer_id, admin, expires_at, created_at) "
+            . "VALUES ('jti-expired', 3, 0, '2020-01-01 00:00:00', '2020-01-01 00:00:00')"
+        );
+
+        $rows = $this->repo->listActive();
+
+        $jtis = array_column($rows, 'jti');
+        self::assertContains('jti-active', $jtis);
+        self::assertNotContains('jti-revoked', $jtis);
+        self::assertNotContains('jti-expired', $jtis);
+    }
+
+    public function test_list_active_respects_limit_and_newest_first(): void
+    {
+        for ($i = 1; $i <= 3; $i++) {
+            $this->repo->record("jti-{$i}", null, true, time() + 900);
+        }
+
+        $rows = $this->repo->listActive(limit: 2);
+
+        self::assertCount(2, $rows);
+        // Newest first — the last inserted (jti-3) should be at index 0
+        self::assertSame('jti-3', $rows[0]['jti']);
+    }
 }

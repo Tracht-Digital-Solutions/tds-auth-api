@@ -40,4 +40,22 @@ final class FakeSessionRepository implements SessionRepository
             $this->sessions[$jti]['revoked'] = true;
         }
     }
+
+    public function listActive(int $limit = 200): array
+    {
+        $now = time();
+        $rows = [];
+        foreach ($this->sessions as $jti => $data) {
+            if ($data['revoked']) continue;
+            if ($data['expires_at'] <= $now) continue;
+            $rows[] = [
+                'jti' => $jti,
+                'customer_id' => $data['customer_id'],
+                'admin' => $data['admin'],
+                'expires_at' => date('Y-m-d H:i:s', $data['expires_at']),
+                'created_at' => date('Y-m-d H:i:s'),
+            ];
+        }
+        return array_slice($rows, 0, $limit);
+    }
 }

@@ -46,4 +46,26 @@ final class PdoSessionRepository implements SessionRepository
         );
         $stmt->execute(['jti' => $jti]);
     }
+
+    public function listActive(int $limit = 200): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT jti, customer_id, admin, expires_at, created_at '
+            . 'FROM session '
+            . 'WHERE revoked_at IS NULL AND expires_at > NOW() '
+            . 'ORDER BY created_at DESC '
+            . 'LIMIT :lim'
+        );
+        $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        $rows = $stmt->fetchAll();
+        return array_map(static fn (array $r) => [
+            'jti' => (string) $r['jti'],
+            'customer_id' => $r['customer_id'] !== null ? (int) $r['customer_id'] : null,
+            'admin' => (bool) $r['admin'],
+            'expires_at' => (string) $r['expires_at'],
+            'created_at' => (string) $r['created_at'],
+        ], $rows);
+    }
 }
