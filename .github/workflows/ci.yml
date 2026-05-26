@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: openssl, pdo_mysql
+          coverage: none
+          tools: composer:v2
+
+      - name: Composer validate
+        run: composer validate --no-check-publish
+
+      - name: Composer install
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: PHP syntax check
+        run: |
+          find src tests -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l > /dev/null
+
+      - name: PHPUnit
+        # Integration tests skip without TDS_TEST_DB_DSN; the
+        # pure-unit subset still runs. Future: add a MariaDB service
+        # container and set TDS_TEST_DB_DSN to enable the rest.
+        run: composer test
