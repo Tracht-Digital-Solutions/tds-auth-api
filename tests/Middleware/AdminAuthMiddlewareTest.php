@@ -15,7 +15,7 @@ final class AdminAuthMiddlewareTest extends TestCase
 {
     public function test_missing_header_returns_401(): void
     {
-        $response = $this->run(new AdminAuthMiddleware('expected-token'), bearer: null);
+        $response = $this->dispatch(new AdminAuthMiddleware('expected-token'), bearer: null);
 
         self::assertSame(401, $response->getStatusCode());
         self::assertSame(['error' => 'unauthorized'], $this->jsonBody($response));
@@ -23,14 +23,14 @@ final class AdminAuthMiddlewareTest extends TestCase
 
     public function test_wrong_token_returns_401(): void
     {
-        $response = $this->run(new AdminAuthMiddleware('expected-token'), bearer: 'wrong');
+        $response = $this->dispatch(new AdminAuthMiddleware('expected-token'), bearer: 'wrong');
 
         self::assertSame(401, $response->getStatusCode());
     }
 
     public function test_unconfigured_token_returns_401_with_explanation(): void
     {
-        $response = $this->run(new AdminAuthMiddleware(''), bearer: 'whatever');
+        $response = $this->dispatch(new AdminAuthMiddleware(''), bearer: 'whatever');
 
         self::assertSame(401, $response->getStatusCode());
         self::assertSame(
@@ -77,7 +77,7 @@ final class AdminAuthMiddlewareTest extends TestCase
         self::assertSame(401, $response->getStatusCode());
     }
 
-    private function run(AdminAuthMiddleware $mw, ?string $bearer): ResponseInterface
+    private function dispatch(AdminAuthMiddleware $mw, ?string $bearer): ResponseInterface
     {
         $request = (new ServerRequestFactory())->createServerRequest('GET', '/whatever');
         if ($bearer !== null) {

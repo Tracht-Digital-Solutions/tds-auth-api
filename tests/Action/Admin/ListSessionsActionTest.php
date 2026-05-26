@@ -13,7 +13,7 @@ final class ListSessionsActionTest extends TestCase
 {
     public function test_returns_empty_list_when_no_sessions(): void
     {
-        $response = $this->run(new FakeSessionRepository(), query: '');
+        $response = $this->dispatch(new FakeSessionRepository(), query: '');
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(['sessions' => []], $this->jsonBody($response));
@@ -25,7 +25,7 @@ final class ListSessionsActionTest extends TestCase
         $sessions->record('jti-admin', null, true, time() + 3600);
         $sessions->record('jti-customer', 7, false, time() + 3600);
 
-        $response = $this->run($sessions, query: '');
+        $response = $this->dispatch($sessions, query: '');
 
         self::assertSame(200, $response->getStatusCode());
         $body = $this->jsonBody($response);
@@ -42,7 +42,7 @@ final class ListSessionsActionTest extends TestCase
         $sessions->record('jti-revoked', null, true, time() + 3600);
         $sessions->revoke('jti-revoked');
 
-        $response = $this->run($sessions, query: '');
+        $response = $this->dispatch($sessions, query: '');
         $body = $this->jsonBody($response);
 
         self::assertCount(1, $body['sessions']);
@@ -55,7 +55,7 @@ final class ListSessionsActionTest extends TestCase
         $sessions->record('jti-future', null, true, time() + 3600);
         $sessions->record('jti-past', null, true, time() - 1);
 
-        $response = $this->run($sessions, query: '');
+        $response = $this->dispatch($sessions, query: '');
         $body = $this->jsonBody($response);
 
         self::assertCount(1, $body['sessions']);
@@ -69,22 +69,22 @@ final class ListSessionsActionTest extends TestCase
             $sessions->record("jti-{$i}", null, true, time() + 3600);
         }
 
-        $response = $this->run($sessions, query: '?limit=2');
+        $response = $this->dispatch($sessions, query: '?limit=2');
         $body = $this->jsonBody($response);
         self::assertCount(2, $body['sessions']);
 
         // limit=0 clamps to 1
-        $response = $this->run($sessions, query: '?limit=0');
+        $response = $this->dispatch($sessions, query: '?limit=0');
         $body = $this->jsonBody($response);
         self::assertCount(1, $body['sessions']);
 
         // limit=9999 clamps to 500 (more than we seeded → 5)
-        $response = $this->run($sessions, query: '?limit=9999');
+        $response = $this->dispatch($sessions, query: '?limit=9999');
         $body = $this->jsonBody($response);
         self::assertCount(5, $body['sessions']);
     }
 
-    private function run(FakeSessionRepository $sessions, string $query): \Psr\Http\Message\ResponseInterface
+    private function dispatch(FakeSessionRepository $sessions, string $query): \Psr\Http\Message\ResponseInterface
     {
         $factory = new ServerRequestFactory();
         $request = $factory->createServerRequest('GET', '/admin/sessions' . $query);

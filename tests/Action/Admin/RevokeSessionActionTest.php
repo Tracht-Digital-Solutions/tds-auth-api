@@ -16,7 +16,7 @@ final class RevokeSessionActionTest extends TestCase
         $sessions = new FakeSessionRepository();
         $sessions->record('jti-1', null, true, time() + 3600);
 
-        $response = $this->run($sessions, 'jti-1');
+        $response = $this->dispatch($sessions, 'jti-1');
 
         self::assertSame(204, $response->getStatusCode());
         self::assertTrue($sessions->isRevoked('jti-1'));
@@ -26,7 +26,7 @@ final class RevokeSessionActionTest extends TestCase
     {
         $sessions = new FakeSessionRepository();
 
-        $response = $this->run($sessions, 'does-not-exist');
+        $response = $this->dispatch($sessions, 'does-not-exist');
 
         self::assertSame(204, $response->getStatusCode());
         self::assertSame(['does-not-exist'], $sessions->revoked);
@@ -38,7 +38,7 @@ final class RevokeSessionActionTest extends TestCase
         $sessions->record('jti-1', null, true, time() + 3600);
         $sessions->revoke('jti-1');
 
-        $response = $this->run($sessions, 'jti-1');
+        $response = $this->dispatch($sessions, 'jti-1');
 
         self::assertSame(204, $response->getStatusCode());
     }
@@ -53,7 +53,7 @@ final class RevokeSessionActionTest extends TestCase
         self::assertSame(400, $response->getStatusCode());
     }
 
-    private function run(FakeSessionRepository $sessions, string $jti): \Psr\Http\Message\ResponseInterface
+    private function dispatch(FakeSessionRepository $sessions, string $jti): \Psr\Http\Message\ResponseInterface
     {
         $request = (new ServerRequestFactory())->createServerRequest('DELETE', "/admin/sessions/{$jti}");
         return (new RevokeSessionAction($sessions))($request, new Response(), ['jti' => $jti]);
