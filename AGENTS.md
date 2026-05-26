@@ -77,3 +77,10 @@ See INSTALL.md §7 for the throwaway-Docker test DB recipe.
   generic error messages but never include the key.
 - Don't increase JWT_TTL_SECONDS beyond ~3600 without thinking about
   blast-radius of a leaked token.
+- Don't write `$_ENV[$key] ?? getenv($key) ?: $default` in env
+  helpers. PHP binds `??` tighter than `?:`, so this parses as
+  `($_ENV[$key] ?? getenv($key)) ?: $default` and silently
+  clobbers any legitimately falsy value (`"0"`, `""`) with the
+  default. Use explicit `?? false` checks instead. Bit all four
+  API repos at once via copy-paste — see #11 (this repo) /
+  contact #7 / content #13 / customer #13.
