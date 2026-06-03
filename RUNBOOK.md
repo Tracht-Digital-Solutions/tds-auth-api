@@ -58,9 +58,9 @@ Use this when:
      `.env` as `JWT_PRIVATE_KEY` (newlines escaped to `\n` if the
      `.env` parser can't do multiline).
    - Set `JWT_KEY_ID` to the new `kid`.
-   - Restart / cycle the PHP-FPM pool if applicable (on the
-     production host, an `install.php` re-deploy is the cleanest
-     way to bounce processes).
+   - Restart / cycle the PHP-FPM pool if applicable (re-triggering the
+     deploy hook — e.g. an empty commit to `main` — is the cleanest way
+     to bounce processes).
    - From now on, newly-issued tokens carry the new `kid`.
 
 6. **Wait `JWT_TTL_SECONDS + JWT_REFRESH_TTL_SECONDS`** (default

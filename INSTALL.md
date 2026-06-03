@@ -159,32 +159,21 @@ run, so no `composer migrate` against the test DB is needed. The same
 container can be reused by every TDS API's test suite — just don't run
 two of them in parallel against it (the schemas overlap).
 
-## 8. Production deployment (manual)
+## 8. Production deployment
 
-Auto-deploy was removed; deploy by hand to the production host:
+Deployment is automatic: a push to `main` that passes CI fires the
+`deploy` job in `.github/workflows/ci.yml`, which GET-pings the deploy
+webhook so the production host pulls the new release and activates it
+(including any migrations).
 
-```bash
-# 1. Install no-dev deps locally
-composer install --no-dev --optimize-autoloader
+One-time: add the `DEPLOY_WEBHOOK_URL` repository secret — the host's
+deploy-hook URL, with the deploy token carried inside the URL. Until
+it's set the deploy ping is skipped (CI still runs).
 
-# 2. SFTP the project tree (excluding .env, var/, keys/private.pem)
-#    to ~/sites/api.tracht-digital.de/auth/releases/<TIMESTAMP>/
-
-# 3. Drop the deploy marker
-touch dist/.deploy-complete
-# (well, technically: SFTP an empty .deploy-complete file into the
-#  release dir. install.php checks for its presence.)
-
-# 4. Trigger install.php to activate the release + run migrations
-curl --fail \
-  "https://api.tracht-digital.de/install.php?action=install-php\
-&target=auth&release=<TIMESTAMP>&migrate=1&token=<INSTALL_TOKEN>"
-```
-
-The shared `~/sites/api.tracht-digital.de/auth/shared/.env` on
-the production host carries the production secrets. It's symlinked into each
-release. **`JWT_PRIVATE_KEY` lives in that .env only** — never SFTP
-the local `keys/private.pem`.
+The shared `~/sites/api.tracht-digital.de/auth/shared/.env` on the
+production host carries the production secrets and is symlinked into
+each release. **`JWT_PRIVATE_KEY` lives in that `.env` only** — it is
+never committed to the repo.
 
 ## Related repos
 

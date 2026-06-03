@@ -2,7 +2,7 @@
 
 > **Setting this up from scratch?** See [`INSTALL.md`](INSTALL.md) for
 > the step-by-step bring-up (composer → MariaDB → JWT keypair → env →
-> migrate → smoke test → manual deploy). This README documents the
+> migrate → smoke test → auto-deploy). This README documents the
 > endpoints, auth model, and runbook for ongoing operation.
 
 ---
@@ -63,14 +63,15 @@ curl -X POST http://localhost:8003/admin/login \
 
 ## Deploy
 
-Auto-deploy via GitHub Actions was removed. Deploy by hand:
+Deployment is automatic. On a push to `main`, once CI passes, the
+`deploy` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+GET-pings the deploy webhook and the production host pulls the new
+release and activates it. The signing key never leaves the host's
+`.env` (see below) — it is not in the repo.
 
-1. `composer install --no-dev --optimize-autoloader`
-2. SFTP the project (excluding `keys/private.pem` — the private key
-   lives in the production host's `.env` only) to
-   `~/sites/api.tracht-digital.de/auth/releases/<TS>/`
-3. Drop `.deploy-complete` in the release dir
-4. Hit `install.php?action=install-php&target=auth&release=<TS>&migrate=1&token=<INSTALL_TOKEN>`
+**Required secret:** set `DEPLOY_WEBHOOK_URL` (repository secret) to the
+host's deploy-hook URL — the deploy token is carried inside the URL. If
+it isn't set, the deploy ping is skipped (CI still runs).
 
 ## Required env on the production host
 
@@ -80,5 +81,6 @@ Auto-deploy via GitHub Actions was removed. Deploy by hand:
 - `ADMIN_TOKEN` (shared admin secret — strong, 32+ chars)
 - DB creds for `tds_auth`
 
-The five legacy Repository Secrets (`FTP_*`, `INSTALL_TOKEN`)
-and the `INSTALLER_URL` variable are unused now and can be cleaned up.
+The only deploy secret now is `DEPLOY_WEBHOOK_URL`. The old `FTP_*` /
+`INSTALL_TOKEN` Repository Secrets and the `INSTALLER_URL` variable are
+unused and can be cleaned up.
