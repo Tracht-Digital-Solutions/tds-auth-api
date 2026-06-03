@@ -18,7 +18,7 @@
 | MariaDB | 11.x (or MySQL 8) | `tds_auth` database |
 | OpenSSL CLI | any | RSA keypair generation |
 | Docker | optional | Local MariaDB without installing one |
-| netcup Webhosting | 8000+ | Production target |
+| Production host | shared Apache/PHP | Deploy target |
 
 ## 1. Clone + install
 
@@ -161,7 +161,7 @@ two of them in parallel against it (the schemas overlap).
 
 ## 8. Production deployment (manual)
 
-Auto-deploy was removed; deploy by hand to netcup:
+Auto-deploy was removed; deploy by hand to the production host:
 
 ```bash
 # 1. Install no-dev deps locally
@@ -182,7 +182,7 @@ curl --fail \
 ```
 
 The shared `~/sites/api.tracht-digital.de/auth/shared/.env` on
-netcup carries the production secrets. It's symlinked into each
+the production host carries the production secrets. It's symlinked into each
 release. **`JWT_PRIVATE_KEY` lives in that .env only** — never SFTP
 the local `keys/private.pem`.
 

@@ -9,7 +9,7 @@
 
 
 JWT auth micro-backend. PHP 8.3 + Slim 4 + firebase/php-jwt + RS256.
-Deploys to **netcup Webhosting 8000** at
+Deploys to **the production host** at
 `https://api.tracht-digital.de/auth/`.
 
 Issues admin and customer tokens; other services verify via the
@@ -67,12 +67,12 @@ Auto-deploy via GitHub Actions was removed. Deploy by hand:
 
 1. `composer install --no-dev --optimize-autoloader`
 2. SFTP the project (excluding `keys/private.pem` — the private key
-   lives in netcup's `.env` only) to
+   lives in the production host's `.env` only) to
    `~/sites/api.tracht-digital.de/auth/releases/<TS>/`
 3. Drop `.deploy-complete` in the release dir
 4. Hit `install.php?action=install-php&target=auth&release=<TS>&migrate=1&token=<INSTALL_TOKEN>`
 
-## Required env on netcup
+## Required env on the production host
 
 `~/sites/api.tracht-digital.de/auth/shared/.env`:
 - `JWT_PRIVATE_KEY` (multi-line PEM, with `\n` escapes if your env
@@ -80,5 +80,5 @@ Auto-deploy via GitHub Actions was removed. Deploy by hand:
 - `ADMIN_TOKEN` (shared admin secret — strong, 32+ chars)
 - DB creds for `tds_auth`
 
-The five legacy Repository Secrets (`NETCUP_FTP_*`, `INSTALL_TOKEN`)
+The five legacy Repository Secrets (`FTP_*`, `INSTALL_TOKEN`)
 and the `INSTALLER_URL` variable are unused now and can be cleaned up.

@@ -53,13 +53,13 @@ Use this when:
 4. **Wait one JWKS_CACHE_TTL window** (default 10 min) so consumers
    refresh their cached JWKS and start accepting the new `kid`.
 
-5. **Switch the signing key.** On netcup:
+5. **Switch the signing key.** On the production host:
    - Paste the contents of `keys/private-NEW.pem` into the shared
      `.env` as `JWT_PRIVATE_KEY` (newlines escaped to `\n` if the
      `.env` parser can't do multiline).
    - Set `JWT_KEY_ID` to the new `kid`.
-   - Restart / cycle the PHP-FPM pool if applicable (on netcup
-     Webhosting 8000, an `install.php` re-deploy is the cleanest
+   - Restart / cycle the PHP-FPM pool if applicable (on the
+     production host, an `install.php` re-deploy is the cleanest
      way to bounce processes).
    - From now on, newly-issued tokens carry the new `kid`.
 
@@ -103,7 +103,7 @@ deploy, then start the slow rollout for the next planned rotation.
 ## Backup + restore
 
 - The only secret material here is `keys/private.pem` (or
-  `JWT_PRIVATE_KEY` in netcup shared `.env`). It's not in version
+  `JWT_PRIVATE_KEY` in the production host shared `.env`). It's not in version
   control — `keys/private.pem` is gitignored.
 - **Backup**: save the private key to your password manager.
   Re-creating one means every active session is invalidated.

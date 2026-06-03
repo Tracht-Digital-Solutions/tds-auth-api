@@ -36,7 +36,7 @@ so the JWKS endpoint can serve it.
 **Don't ever commit `keys/private.pem`.** The .gitignore covers it,
 the deploy workflow excludes it from the upload, but the convention
 is: private key only ever exists in (a) your password manager, (b)
-the netcup `.env`, (c) optionally `keys/private.pem` on the dev
+the production host `.env`, (c) optionally `keys/private.pem` on the dev
 machine. After step (a), feel free to `rm` the file.
 
 ## Mental model
