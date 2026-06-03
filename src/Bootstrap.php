@@ -13,6 +13,7 @@ use Tds\AuthApi\Action\Admin\ListSessionsAction;
 use Tds\AuthApi\Action\Admin\LoginAction as AdminLoginAction;
 use Tds\AuthApi\Action\Admin\LogoutAction as AdminLogoutAction;
 use Tds\AuthApi\Action\Admin\RevokeSessionAction;
+use Tds\AuthApi\Action\Customer\ChangePasswordAction as CustomerChangePasswordAction;
 use Tds\AuthApi\Action\Customer\LoginAction as CustomerLoginAction;
 use Tds\AuthApi\Action\HealthAction;
 use Tds\AuthApi\Action\JwksAction;
@@ -84,6 +85,7 @@ final class Bootstrap
         $app->get('/admin/sessions', ListSessionsAction::class)->add($admin);
         $app->delete('/admin/sessions/{jti}', RevokeSessionAction::class)->add($admin);
         $app->post('/customer/login', CustomerLoginAction::class);
+        $app->put('/customer/password', CustomerChangePasswordAction::class);
         $app->post('/refresh', RefreshAction::class);
         $app->get('/.well-known/jwks.json', JwksAction::class);
 
