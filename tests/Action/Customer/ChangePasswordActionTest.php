@@ -9,6 +9,7 @@ use Psr\Http\Message\ResponseInterface;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response;
 use Tds\AuthApi\Action\Customer\ChangePasswordAction;
+use Tds\AuthApi\Middleware\CustomerAuthMiddleware;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Tests\Support\FakeSessionRepository;
@@ -17,6 +18,10 @@ use Tds\AuthApi\Tests\Support\Keys;
 /**
  * Integration test: reads/writes customer_credential. Skipped without
  * TDS_TEST_DB_DSN.
+ *
+ * Authentication is the job of CustomerAuthMiddleware (covered in its
+ * own test); here the action is invoked with the `customer_id` / `jti`
+ * request attributes the middleware would have populated.
  */
 final class ChangePasswordActionTest extends TestCase
 {
@@ -70,59 +75,29 @@ final class ChangePasswordActionTest extends TestCase
         $this->cookies = new CookieFactory('tds_session', '.local', secure: false);
     }
 
-    public function test_missing_token_returns_401(): void
-    {
-        $response = $this->changePassword(token: null, payload: ['old' => 'old-password-1', 'new' => 'new-password-1']);
-
-        self::assertSame(401, $response->getStatusCode());
-    }
-
-    public function test_admin_token_is_rejected(): void
-    {
-        $issued = $this->jwt->issueAdmin();
-        $this->sessions->record($issued['jti'], null, true, $issued['expiresAt']);
-
-        $response = $this->changePassword(token: $issued['token'], payload: ['old' => 'old-password-1', 'new' => 'new-password-1']);
-
-        self::assertSame(403, $response->getStatusCode());
-    }
-
-    public function test_revoked_session_returns_401(): void
-    {
-        $this->seed(7, 'old-password-1');
-        $issued = $this->liveCustomer(7);
-        $this->sessions->revoke($issued['jti']);
-
-        $response = $this->changePassword(token: $issued['token'], payload: ['old' => 'old-password-1', 'new' => 'new-password-2']);
-
-        self::assertSame(401, $response->getStatusCode());
-    }
-
     public function test_missing_body_fields_return_400(): void
     {
-        $issued = $this->liveCustomer(7);
+        $jti = $this->liveSession(7);
 
-        $response = $this->changePassword(token: $issued['token'], payload: ['old' => 'old-password-1']);
+        $response = $this->changePassword(7, $jti, payload: ['old' => 'old-password-1']);
 
         self::assertSame(400, $response->getStatusCode());
     }
 
     public function test_short_new_password_returns_422(): void
     {
-        $this->seed(7, 'old-password-1');
-        $issued = $this->liveCustomer(7);
+        $jti = $this->liveSession(7);
 
-        $response = $this->changePassword(token: $issued['token'], payload: ['old' => 'old-password-1', 'new' => 'short']);
+        $response = $this->changePassword(7, $jti, payload: ['old' => 'old-password-1', 'new' => 'short']);
 
         self::assertSame(422, $response->getStatusCode());
     }
 
     public function test_reused_password_returns_422(): void
     {
-        $this->seed(7, 'old-password-1');
-        $issued = $this->liveCustomer(7);
+        $jti = $this->liveSession(7);
 
-        $response = $this->changePassword(token: $issued['token'], payload: ['old' => 'old-password-1', 'new' => 'old-password-1']);
+        $response = $this->changePassword(7, $jti, payload: ['old' => 'old-password-1', 'new' => 'old-password-1']);
 
         self::assertSame(422, $response->getStatusCode());
     }
@@ -130,9 +105,9 @@ final class ChangePasswordActionTest extends TestCase
     public function test_wrong_old_password_returns_401(): void
     {
         $this->seed(7, 'old-password-1');
-        $issued = $this->liveCustomer(7);
+        $jti = $this->liveSession(7);
 
-        $response = $this->changePassword(token: $issued['token'], payload: ['old' => 'wrong-password-x', 'new' => 'new-password-1']);
+        $response = $this->changePassword(7, $jti, payload: ['old' => 'wrong-password-x', 'new' => 'new-password-1']);
 
         self::assertSame(401, $response->getStatusCode());
     }
@@ -140,15 +115,13 @@ final class ChangePasswordActionTest extends TestCase
     public function test_happy_path_rotates_hash_and_revokes_old_jti(): void
     {
         $this->seed(7, 'old-password-1');
-        $issued = $this->liveCustomer(7);
-        $oldJti = $issued['jti'];
+        $oldJti = $this->liveSession(7);
 
-        $response = $this->changePassword(token: $issued['token'], payload: ['old' => 'old-password-1', 'new' => 'new-password-2']);
+        $response = $this->changePassword(7, $oldJti, payload: ['old' => 'old-password-1', 'new' => 'new-password-2']);
 
         self::assertSame(200, $response->getStatusCode());
         $body = $this->jsonBody($response);
         self::assertSame(7, $body['customerId']);
-        self::assertNotSame($issued['token'], $body['token']);
 
         $newClaims = $this->jwt->verify($body['token']);
         self::assertSame(7, $newClaims['customer_id']);
@@ -162,25 +135,21 @@ final class ChangePasswordActionTest extends TestCase
 
     public function test_missing_credential_row_revokes_and_clears_cookie(): void
     {
-        $issued = $this->liveCustomer(99);
+        $jti = $this->liveSession(99);
 
-        $response = $this->changePassword(token: $issued['token'], payload: ['old' => 'old-password-1', 'new' => 'new-password-2']);
+        $response = $this->changePassword(99, $jti, payload: ['old' => 'old-password-1', 'new' => 'new-password-2']);
 
         self::assertSame(401, $response->getStatusCode());
-        self::assertTrue($this->sessions->isRevoked($issued['jti']));
+        self::assertTrue($this->sessions->isRevoked($jti));
         self::assertStringContainsString('Max-Age=0', $response->getHeaderLine('Set-Cookie'));
     }
 
-    /**
-     * Mint a customer JWT and register its jti as a live session.
-     *
-     * @return array{token:string,jti:string,expiresAt:int}
-     */
-    private function liveCustomer(int $customerId): array
+    /** Record a live customer session and return its jti (as the middleware would). */
+    private function liveSession(int $customerId): string
     {
         $issued = $this->jwt->issueCustomer($customerId);
         $this->sessions->record($issued['jti'], $customerId, false, $issued['expiresAt']);
-        return $issued;
+        return $issued['jti'];
     }
 
     private function seed(int $customerId, string $password): void
@@ -193,14 +162,13 @@ final class ChangePasswordActionTest extends TestCase
     }
 
     /** @param array<string,mixed> $payload */
-    private function changePassword(?string $token, array $payload): ResponseInterface
+    private function changePassword(int $customerId, string $jti, array $payload): ResponseInterface
     {
         $request = (new ServerRequestFactory())
             ->createServerRequest('PUT', '/customer/password')
-            ->withParsedBody($payload);
-        if ($token !== null) {
-            $request = $request->withHeader('Authorization', 'Bearer ' . $token);
-        }
+            ->withParsedBody($payload)
+            ->withAttribute(CustomerAuthMiddleware::ATTR_CUSTOMER_ID, $customerId)
+            ->withAttribute(CustomerAuthMiddleware::ATTR_JTI, $jti);
         $action = new ChangePasswordAction(
             $this->pdo,
             $this->jwt,

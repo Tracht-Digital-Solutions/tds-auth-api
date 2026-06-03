@@ -7,6 +7,7 @@ use PDO;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
+use Tds\AuthApi\Middleware\CustomerAuthMiddleware;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\SessionRepository;
@@ -16,7 +17,8 @@ use Tds\AuthApi\Service\SessionRepository;
  *
  * Body: {"old": "...", "new": "..."}.
  *
- * Requires a valid customer JWT (cookie or Authorization: Bearer).
+ * Gated by CustomerAuthMiddleware, which authenticates the customer
+ * JWT and exposes the customer id and jti as request attributes.
  * Verifies the old password against the stored argon2id hash,
  * rehashes the new password, revokes the current jti and issues a
  * fresh JWT — so any other live tab/device using the old token is
@@ -34,27 +36,8 @@ final class ChangePasswordAction
 
     public function __invoke(ServerRequestInterface $request, Response $response): ResponseInterface
     {
-        $token = $this->extractToken($request);
-        if ($token === null) {
-            return $this->json($response, 401, ['error' => 'No token presented']);
-        }
-
-        try {
-            $claims = $this->jwt->verify($token);
-        } catch (\Throwable) {
-            return $this->json($response, 401, ['error' => 'Invalid token']);
-        }
-
-        $jti = (string) ($claims['jti'] ?? '');
-        $customerId = isset($claims['customer_id']) && is_int($claims['customer_id']) ? $claims['customer_id'] : null;
-        $admin = (bool) ($claims['admin'] ?? false);
-
-        if ($admin || $customerId === null || $jti === '') {
-            return $this->json($response, 403, ['error' => 'Customer session required']);
-        }
-        if ($this->sessions->isRevoked($jti)) {
-            return $this->json($response, 401, ['error' => 'Session revoked']);
-        }
+        $customerId = (int) $request->getAttribute(CustomerAuthMiddleware::ATTR_CUSTOMER_ID);
+        $jti = (string) $request->getAttribute(CustomerAuthMiddleware::ATTR_JTI);
 
         $body = $request->getParsedBody();
         $old = is_array($body) ? (string) ($body['old'] ?? '') : '';
@@ -116,16 +99,6 @@ final class ChangePasswordAction
         $stmt->execute(['cid' => $customerId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return is_array($row) ? $row : false;
-    }
-
-    private function extractToken(ServerRequestInterface $request): ?string
-    {
-        $auth = $request->getHeaderLine('Authorization');
-        if ($auth !== '' && preg_match('/^Bearer\s+(.+)$/i', $auth, $m) === 1) {
-            return $m[1];
-        }
-        $cookie = $request->getCookieParams()[$this->cookies->name()] ?? null;
-        return is_string($cookie) && $cookie !== '' ? $cookie : null;
     }
 
     /** @param array<string,mixed> $payload */

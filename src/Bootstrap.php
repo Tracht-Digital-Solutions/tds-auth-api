@@ -22,6 +22,7 @@ use Tds\AuthApi\Infrastructure\Database;
 use Tds\AuthApi\Infrastructure\PdoSessionRepository;
 use Tds\AuthApi\Middleware\AdminAuthMiddleware;
 use Tds\AuthApi\Middleware\CorsMiddleware;
+use Tds\AuthApi\Middleware\CustomerAuthMiddleware;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\PdoRateLimiter;
@@ -47,6 +48,12 @@ final class Bootstrap
         ]));
 
         $container->set(SessionRepository::class, fn (Container $c) => new PdoSessionRepository($c->get(PDO::class)));
+
+        $container->set(CustomerAuthMiddleware::class, fn (Container $c) => new CustomerAuthMiddleware(
+            $c->get(JwtService::class),
+            $c->get(SessionRepository::class),
+            $c->get(CookieFactory::class),
+        ));
 
         $container->set(RateLimiter::class, fn (Container $c) => new PdoRateLimiter(
             pdo: $c->get(PDO::class),
@@ -85,7 +92,7 @@ final class Bootstrap
         $app->get('/admin/sessions', ListSessionsAction::class)->add($admin);
         $app->delete('/admin/sessions/{jti}', RevokeSessionAction::class)->add($admin);
         $app->post('/customer/login', CustomerLoginAction::class);
-        $app->put('/customer/password', CustomerChangePasswordAction::class);
+        $app->put('/customer/password', CustomerChangePasswordAction::class)->add(CustomerAuthMiddleware::class);
         $app->post('/refresh', RefreshAction::class);
         $app->get('/.well-known/jwks.json', JwksAction::class);
 
