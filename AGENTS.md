@@ -4,6 +4,16 @@ PHP 8.3 + Slim 4 + firebase/php-jwt. Issues and verifies RS256
 JWTs. Other backends verify them via `/.well-known/jwks.json`
 without ever seeing the private key.
 
+## Behind the gateway
+
+The public surface `api.tracht-digital.de/auth/*` is fronted by
+`tds-api-gateway`, a Slim reverse proxy that strips the `/auth` prefix and
+forwards to this service (so `…/auth/admin/login` → this app's
+`/admin/login`). The path contract is unchanged — routes here still mount at
+root. A push to `main` also fires a `repository_dispatch(api-pushed)` to the
+gateway (needs `GATEWAY_DISPATCH_TOKEN`), which reassembles its `build`
+bundle with this service's new code.
+
 ## Endpoints
 
 - `POST /admin/login` — Phase-2 bridge: shared ADMIN_TOKEN → JWT.
