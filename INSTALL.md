@@ -96,21 +96,21 @@ CORS_ALLOWED_ORIGINS=http://localhost:4321,https://admin.tracht-digital.de,https
 
 ```bash
 composer migrate
-composer start         # http://localhost:8001
+composer start         # http://localhost:8003
 ```
 
 ## 6. Verify
 
 ```bash
 # Liveness
-curl -i http://localhost:8001/healthz
+curl -i http://localhost:8003/healthz
 # 200 OK with DB status
 
 # JWKS endpoint must work — every other API depends on this
-curl -s http://localhost:8001/.well-known/jwks.json | jq
+curl -s http://localhost:8003/.well-known/jwks.json | jq
 
 # Admin login (after setting ADMIN_TOKEN)
-curl -sX POST http://localhost:8001/admin/login \
+curl -sX POST http://localhost:8003/admin/login \
   -H 'Content-Type: application/json' \
   -d "{\"token\":\"$ADMIN_TOKEN\"}" -i
 # 200 OK with JWT in body + Set-Cookie
