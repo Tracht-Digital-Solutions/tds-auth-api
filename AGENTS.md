@@ -10,9 +10,7 @@ The public surface `api.tracht-digital.de/auth/*` is fronted by
 `tds-api-gateway`, a Slim reverse proxy that strips the `/auth` prefix and
 forwards to this service (so `…/auth/admin/login` → this app's
 `/admin/login`). The path contract is unchanged — routes here still mount at
-root. A push to `main` also fires a `repository_dispatch(api-pushed)` to the
-gateway (needs `GATEWAY_DISPATCH_TOKEN`), which reassembles its `build`
-bundle with this service's new code.
+root. The build model is dev/release (see README): a push to `main` auto-assembles the **`dev`** bundle (developer artifact, not deployed); the manual **Release** workflow (`release.yml`) assembles the **`release`** bundle, pings the deploy webhook, and fires a `repository_dispatch(api-pushed)` to the gateway (needs `GATEWAY_DISPATCH_TOKEN`) so it reassembles its `dev` bundle.
 
 ## Endpoints
 
