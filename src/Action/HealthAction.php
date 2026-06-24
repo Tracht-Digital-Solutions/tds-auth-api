@@ -21,9 +21,17 @@ use Tds\AuthApi\Service\JwtService;
  */
 final class HealthAction
 {
+    /**
+     * Both deps are lazy providers, resolved inside the checks' try/catch so a
+     * DB outage / corrupt-or-missing key reports `down`/`missing` with HTTP 200
+     * instead of 5xx'ing during construction (the documented "never 5xx").
+     *
+     * @param \Closure(): PDO $pdo
+     * @param \Closure(): JwtService $jwt
+     */
     public function __construct(
-        private readonly PDO $pdo,
-        private readonly JwtService $jwt,
+        private readonly \Closure $pdo,
+        private readonly \Closure $jwt,
     ) {
     }
 
@@ -45,7 +53,7 @@ final class HealthAction
     private function checkDb(): string
     {
         try {
-            $this->pdo->query('SELECT 1');
+            ($this->pdo)()->query('SELECT 1');
             return 'ok';
         } catch (\Throwable) {
             return 'down';
@@ -54,6 +62,10 @@ final class HealthAction
 
     private function checkKeys(): string
     {
-        return $this->jwt->keyHealth() ? 'loaded' : 'missing';
+        try {
+            return ($this->jwt)()->keyHealth() ? 'loaded' : 'missing';
+        } catch (\Throwable) {
+            return 'missing';
+        }
     }
 }

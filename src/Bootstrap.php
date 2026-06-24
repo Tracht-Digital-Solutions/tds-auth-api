@@ -47,6 +47,14 @@ final class Bootstrap
             'pass' => self::env('DB_PASS'),
         ]));
 
+        // Health probe resolves PDO + JwtService lazily (inside its own
+        // try/catch) so a DB outage or missing/corrupt key reports
+        // down/missing with HTTP 200 instead of 5xx'ing during construction.
+        $container->set(HealthAction::class, fn (Container $c) => new HealthAction(
+            static fn (): PDO => $c->get(PDO::class),
+            static fn (): JwtService => $c->get(JwtService::class),
+        ));
+
         $container->set(SessionRepository::class, fn (Container $c) => new PdoSessionRepository($c->get(PDO::class)));
 
         $container->set(CustomerAuthMiddleware::class, fn (Container $c) => new CustomerAuthMiddleware(
