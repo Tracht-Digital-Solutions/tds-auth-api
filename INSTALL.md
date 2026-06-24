@@ -162,7 +162,7 @@ two of them in parallel against it (the schemas overlap).
 ## 8. Production deployment
 
 Deployment is automatic: a push to `main` that passes CI fires the
-`deploy` job in `.github/workflows/ci.yml`, which GET-pings the deploy
+`deploy` job in `.github/workflows/ci.yml`, which POST-pings the deploy
 webhook so the production host pulls the new release and activates it
 (including any migrations).
 

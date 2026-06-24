@@ -65,7 +65,7 @@ curl -X POST http://localhost:8003/admin/login \
 
 Deployment is automatic. On a push to `main`, once CI passes, the
 `deploy` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-GET-pings the deploy webhook and the production host pulls the new
+POST-pings the deploy webhook and the production host pulls the new
 release and activates it. The signing key never leaves the host's
 `.env` (see below) — it is not in the repo.
 
