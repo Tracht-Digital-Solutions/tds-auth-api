@@ -161,19 +161,19 @@ two of them in parallel against it (the schemas overlap).
 
 ## 8. Production deployment
 
-Deployment is automatic: a push to `main` that passes CI fires the
-`deploy` job in `.github/workflows/ci.yml`, which POST-pings the deploy
-webhook so the production host pulls the new release and activates it
-(including any migrations).
+In production this API does **not** run on its own — it ships inside the
+**`tds-api-gateway` bundle** as `services/auth/` and is served by the gateway in
+its default **in-process** mode (`GATEWAY_MODE=inprocess`): one PHP-FPM app for
+the whole API surface, **no per-service `php -S` process to start**. The full
+release recipe (Plesk Git checkout of the gateway's `release` branch, docroot on
+`gateway/public`, DBs, migrations, `.env`s — most of it via the `/install.php`
+wizard) lives in the gateway repo's **`DEPLOY-PLESK.md`**.
 
-One-time: add the `DEPLOY_WEBHOOK_URL` repository secret — the host's
-deploy-hook URL, with the deploy token carried inside the URL. Until
-it's set the deploy ping is skipped (CI still runs).
-
-The shared `~/sites/api.tracht-digital.de/auth/shared/.env` on the
-production host carries the production secrets and is symlinked into
-each release. **`JWT_PRIVATE_KEY` lives in that `.env` only** — it is
-never committed to the repo.
+This service's config lives at `services/auth/.env` on the host (untracked,
+survives deploys). **`JWT_PRIVATE_KEY` lives there only** (or as
+`services/auth/keys/private.pem`, mode 600) — it is never committed to the repo.
+A manual *Actions → Release* on this repo dispatches a gateway re-assemble +
+deploy; pushes to `main` only build the (undeployed) `dev` bundle.
 
 ## Related repos
 
