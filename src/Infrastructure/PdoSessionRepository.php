@@ -53,7 +53,11 @@ final class PdoSessionRepository implements SessionRepository
             'SELECT jti, customer_id, admin, expires_at, created_at '
             . 'FROM session '
             . 'WHERE revoked_at IS NULL AND expires_at > NOW() '
-            . 'ORDER BY created_at DESC '
+            // created_at is 1s-resolution (NOW()), so a DESC sort alone leaves
+            // same-second sessions in undefined (PK/jti-ascending = oldest-first)
+            // order. jti DESC is a deterministic tiebreaker. True sub-second
+            // recency would need DATETIME(6) — tracked in #12.
+            . 'ORDER BY created_at DESC, jti DESC '
             . 'LIMIT :lim'
         );
         $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
