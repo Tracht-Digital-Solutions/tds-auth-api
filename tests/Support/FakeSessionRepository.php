@@ -7,18 +7,22 @@ use Tds\AuthApi\Service\SessionRepository;
 
 final class FakeSessionRepository implements SessionRepository
 {
-    /** @var array<string, array{customer_id:?int, admin:bool, expires_at:int, revoked:bool}> */
+    /** @var array<string, array{customer_id:?int, user_id:?int, admin:bool, expires_at:int, revoked:bool}> */
     public array $sessions = [];
 
     /** @var list<string> */
     public array $revoked = [];
 
+    /** @var list<int> */
+    public array $revokedUsers = [];
+
     public bool $defaultRevokedForUnknown = false;
 
-    public function record(string $jti, ?int $customerId, bool $admin, int $expiresAtUnix): void
+    public function record(string $jti, ?int $customerId, bool $admin, int $expiresAtUnix, ?int $userId = null): void
     {
         $this->sessions[$jti] = [
             'customer_id' => $customerId,
+            'user_id' => $userId,
             'admin' => $admin,
             'expires_at' => $expiresAtUnix,
             'revoked' => false,
@@ -38,6 +42,16 @@ final class FakeSessionRepository implements SessionRepository
         $this->revoked[] = $jti;
         if (isset($this->sessions[$jti])) {
             $this->sessions[$jti]['revoked'] = true;
+        }
+    }
+
+    public function revokeAllForUser(int $userId): void
+    {
+        $this->revokedUsers[] = $userId;
+        foreach ($this->sessions as $jti => $data) {
+            if ($data['user_id'] === $userId) {
+                $this->sessions[$jti]['revoked'] = true;
+            }
         }
     }
 

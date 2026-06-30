@@ -10,19 +10,26 @@ use Slim\App;
 use Slim\Factory\AppFactory;
 use Tds\AuthApi\Action\Admin\CreateCustomerCredentialAction;
 use Tds\AuthApi\Action\Admin\ListSessionsAction;
-use Tds\AuthApi\Action\Admin\LoginAction as AdminLoginAction;
 use Tds\AuthApi\Action\Admin\LogoutAction as AdminLogoutAction;
 use Tds\AuthApi\Action\Admin\RevokeSessionAction;
-use Tds\AuthApi\Action\Customer\ChangePasswordAction as CustomerChangePasswordAction;
-use Tds\AuthApi\Action\Customer\LoginAction as CustomerLoginAction;
+use Tds\AuthApi\Action\Admin\Users\CreateUserAction;
+use Tds\AuthApi\Action\Admin\Users\DeleteUserAction;
+use Tds\AuthApi\Action\Admin\Users\ListUsersAction;
+use Tds\AuthApi\Action\Admin\Users\ResetPasswordAction;
+use Tds\AuthApi\Action\Admin\Users\UpdateUserAction;
+use Tds\AuthApi\Action\ChangePasswordAction;
 use Tds\AuthApi\Action\HealthAction;
 use Tds\AuthApi\Action\JwksAction;
+use Tds\AuthApi\Action\LoginAction;
+use Tds\AuthApi\Action\MeAction;
 use Tds\AuthApi\Action\RefreshAction;
 use Tds\AuthApi\Infrastructure\Database;
+use Tds\AuthApi\Infrastructure\PdoAppUserRepository;
 use Tds\AuthApi\Infrastructure\PdoSessionRepository;
 use Tds\AuthApi\Middleware\AdminAuthMiddleware;
 use Tds\AuthApi\Middleware\CorsMiddleware;
-use Tds\AuthApi\Middleware\CustomerAuthMiddleware;
+use Tds\AuthApi\Middleware\JwtAuthMiddleware;
+use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\PdoRateLimiter;
@@ -57,11 +64,7 @@ final class Bootstrap
 
         $container->set(SessionRepository::class, fn (Container $c) => new PdoSessionRepository($c->get(PDO::class)));
 
-        $container->set(CustomerAuthMiddleware::class, fn (Container $c) => new CustomerAuthMiddleware(
-            $c->get(JwtService::class),
-            $c->get(SessionRepository::class),
-            $c->get(CookieFactory::class),
-        ));
+        $container->set(AppUserRepository::class, fn (Container $c) => new PdoAppUserRepository($c->get(PDO::class)));
 
         $container->set(RateLimiter::class, fn (Container $c) => new PdoRateLimiter(
             pdo: $c->get(PDO::class),
@@ -91,16 +94,51 @@ final class Bootstrap
         $app->addRoutingMiddleware();
         $app->addErrorMiddleware(self::env('APP_ENV') !== 'production', true, true);
 
-        $admin = new AdminAuthMiddleware(self::env('ADMIN_TOKEN', ''));
+        // Per-admin JWT gate (replaces the shared ADMIN_TOKEN for the UI) and a
+        // generic any-session gate for /me + /password.
+        $adminJwt = new JwtAuthMiddleware(
+            $container->get(JwtService::class),
+            $container->get(SessionRepository::class),
+            requireAdmin: true,
+        );
+        $sessionAuth = new JwtAuthMiddleware(
+            $container->get(JwtService::class),
+            $container->get(SessionRepository::class),
+        );
+        // Service-to-service token for the customer-api onboarding call. Falls
+        // back to the legacy ADMIN_TOKEN so existing deployments keep working
+        // until SERVICE_TOKEN is set.
+        $service = new AdminAuthMiddleware(self::env('SERVICE_TOKEN', self::env('ADMIN_TOKEN', '')));
 
         $app->get('/healthz', HealthAction::class);
-        $app->post('/admin/login', AdminLoginAction::class);
+
+        // Unified login (both panels) + back-compat alias.
+        $app->post('/login', LoginAction::class);
+        $app->post('/customer/login', LoginAction::class);
+
+        // Logout (works for any session) + back-compat alias.
+        $app->delete('/logout', AdminLogoutAction::class);
         $app->delete('/admin/login', AdminLogoutAction::class);
-        $app->post('/admin/customer-credentials', CreateCustomerCredentialAction::class)->add($admin);
-        $app->get('/admin/sessions', ListSessionsAction::class)->add($admin);
-        $app->delete('/admin/sessions/{jti}', RevokeSessionAction::class)->add($admin);
-        $app->post('/customer/login', CustomerLoginAction::class);
-        $app->put('/customer/password', CustomerChangePasswordAction::class)->add(CustomerAuthMiddleware::class);
+
+        // Current principal + password change (any authenticated user).
+        $app->get('/me', MeAction::class)->add($sessionAuth);
+        $app->put('/password', ChangePasswordAction::class)->add($sessionAuth);
+        $app->put('/customer/password', ChangePasswordAction::class)->add($sessionAuth);
+
+        // User management (per-admin JWT).
+        $app->get('/admin/users', ListUsersAction::class)->add($adminJwt);
+        $app->post('/admin/users', CreateUserAction::class)->add($adminJwt);
+        $app->patch('/admin/users/{id}', UpdateUserAction::class)->add($adminJwt);
+        $app->delete('/admin/users/{id}', DeleteUserAction::class)->add($adminJwt);
+        $app->post('/admin/users/{id}/reset-password', ResetPasswordAction::class)->add($adminJwt);
+
+        // Session inspection (per-admin JWT).
+        $app->get('/admin/sessions', ListSessionsAction::class)->add($adminJwt);
+        $app->delete('/admin/sessions/{jti}', RevokeSessionAction::class)->add($adminJwt);
+
+        // Server-to-server onboarding (service token).
+        $app->post('/admin/customer-credentials', CreateCustomerCredentialAction::class)->add($service);
+
         $app->post('/refresh', RefreshAction::class);
         $app->get('/.well-known/jwks.json', JwksAction::class);
 

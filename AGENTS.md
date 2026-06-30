@@ -14,19 +14,44 @@ root. The build model is dev/release (see README): a push to `main` auto-assembl
 
 ## Endpoints
 
-- `POST /admin/login` — Phase-2 bridge: shared ADMIN_TOKEN → JWT.
-- `DELETE /admin/login` — revoke session + clear cookie (works for
-  either admin or customer JWTs — the route name is historical).
-- `POST /admin/customer-credentials` — server-to-server, gated by
-  AdminAuthMiddleware. Called by tds-customer-api after a customer
-  row is inserted; we argon2id-hash the temp password into
-  `customer_credential`.
-- `POST /customer/login` — email + password → customer JWT. Looks
-  up `customer_credential`, verifies with `password_verify`, runs a
-  dummy verify on miss for constant-time behavior.
-- `POST /refresh` — rotate access token (verifies signature + checks
-  session revocation).
+Unified user model: one `app_user` row = one login spanning both panels.
+`is_admin` grants admin-panel access; a non-null `customer_id` ties the
+account to a company (tenant) in the portal, scoped by a `permissions` JSON
+array (the catalog is hand-duplicated in `Domain\Permissions` from tds-shared's
+`PORTAL_PERMISSIONS`). Multiple accounts may share one `customer_id`. The JWT
+carries `admin`, `customer_id`, `uid` and `permissions`. (The old
+`customer_credential` table is left in place for rollback but is no longer
+read.)
+
+- `POST /login` (alias `POST /customer/login`) — email + password → JWT for
+  both panels. Looks up `app_user`, verifies with `password_verify` (dummy
+  verify on miss for constant-time behavior), rejects `disabled` accounts with
+  403. Response includes `isAdmin` / `customerId` / `permissions`; the admin
+  panel checks `isAdmin`.
+- `DELETE /logout` (alias `DELETE /admin/login`) — revoke session + clear
+  cookie (works for any session).
+- `GET /me` — current principal (drives UI gating). Gated by `JwtAuthMiddleware`.
+- `PUT /password` (alias `PUT /customer/password`) — change own password,
+  rotate session. Gated by `JwtAuthMiddleware`.
+- `GET|POST /admin/users`, `PATCH|DELETE /admin/users/{id}`,
+  `POST /admin/users/{id}/reset-password` — user management, gated by
+  `JwtAuthMiddleware(requireAdmin: true)` (per-admin JWT, not the shared
+  token). Authorization-relevant changes (is_admin / permissions / status /
+  customer_id) revoke the user's sessions so the change lands on next login.
+- `GET /admin/sessions`, `DELETE /admin/sessions/{jti}` — same admin-JWT gate.
+- `POST /admin/customer-credentials` — server-to-server, gated by the
+  **service token** (`SERVICE_TOKEN`, falls back to `ADMIN_TOKEN`). Called by
+  tds-customer-api after a company row is inserted; creates the matching
+  `app_user` (full portal access by default).
+- `POST /refresh` — rotate access token, carrying `uid`/`permissions` forward
+  (verifies signature + session revocation).
 - `GET /.well-known/jwks.json` — public key in JWKS format.
+
+Bootstrap the first admin (the shared-token paste login is gone):
+
+```bash
+composer create-admin -- you@example.com [password]
+```
 
 ## Key generation
 
@@ -66,14 +91,16 @@ PHPUnit 10. `composer test` runs the suite.
   enforcement, JWK extraction. `tests/Support/Keys` generates a
   throwaway 2048-bit RSA keypair per test run via `openssl_pkey_new`,
   so the real `JWT_PRIVATE_KEY` never appears in the suite.
-- **CookieFactory**, **AdminAuthMiddleware**, **JwksAction**,
-  **RefreshAction**, **Admin\\LoginAction**, **Admin\\LogoutAction**
-  — driven directly with Slim PSR-7 objects and a
-  `FakeSessionRepository`. No DB.
-- **Integration tests** (`Customer\\LoginAction`,
-  `Admin\\CreateCustomerCredentialAction`,
-  `PdoSessionRepository`) exercise real MariaDB. Set
-  `TDS_TEST_DB_DSN` (+ `_USER` / `_PASS`) to run; otherwise they skip.
+- Most actions/middleware are driven directly with Slim PSR-7 objects plus
+  `FakeSessionRepository` + `FakeAppUserRepository` (no DB) — `LoginAction`,
+  `MeAction`, `ChangePasswordAction`, the `Admin\Users\*` CRUD,
+  `JwtAuthMiddleware`, `CreateCustomerCredentialAction`, plus `CookieFactory`,
+  `AdminAuthMiddleware`, `JwksAction`, `RefreshAction`, `Admin\LogoutAction`,
+  `Domain\Permissions`, `PasswordGenerator`.
+- **Integration tests** (`PdoSessionRepository`, `PdoRateLimiter`) exercise
+  real MariaDB. Set `TDS_TEST_DB_DSN` (+ `_USER` / `_PASS`) to run; otherwise
+  they skip. The `app_user` migration + `PdoAppUserRepository` SQL are only
+  exercised end-to-end against a real DB (`composer migrate` + manual run).
 
 See INSTALL.md §7 for the throwaway-Docker test DB recipe.
 

@@ -5,6 +5,7 @@ namespace Tds\AuthApi\Tests\Service;
 
 use Firebase\JWT\JWT;
 use PHPUnit\Framework\TestCase;
+use Tds\AuthApi\Domain\AppUser;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Tests\Support\Keys;
 
@@ -47,6 +48,49 @@ final class JwtServiceTest extends TestCase
         self::assertFalse($claims['admin']);
         self::assertSame(42, $claims['customer_id']);
         self::assertSame('42', $claims['sub']);
+    }
+
+    public function test_issue_for_customer_user_carries_uid_and_permissions(): void
+    {
+        $user = new AppUser(
+            id: 99,
+            email: 'cust@example.com',
+            name: 'Cust',
+            isAdmin: false,
+            customerId: 7,
+            permissions: ['invoices:read', 'invoices:pay'],
+            status: 'active',
+            passwordHash: 'x',
+        );
+
+        $claims = $this->jwt->verify($this->jwt->issueForUser($user)['token']);
+
+        self::assertFalse($claims['admin']);
+        self::assertSame(7, $claims['customer_id']);
+        self::assertSame(99, $claims['uid']);
+        self::assertSame(['invoices:read', 'invoices:pay'], $claims['permissions']);
+        self::assertSame('99', $claims['sub']);
+    }
+
+    public function test_issue_for_admin_user_omits_permissions(): void
+    {
+        $user = new AppUser(
+            id: 1,
+            email: 'admin@example.com',
+            name: 'Admin',
+            isAdmin: true,
+            customerId: null,
+            permissions: ['invoices:pay'],
+            status: 'active',
+            passwordHash: 'x',
+        );
+
+        $claims = $this->jwt->verify($this->jwt->issueForUser($user)['token']);
+
+        self::assertTrue($claims['admin']);
+        self::assertNull($claims['customer_id']);
+        self::assertSame(1, $claims['uid']);
+        self::assertSame([], $claims['permissions']);
     }
 
     public function test_verify_rejects_token_with_wrong_issuer(): void

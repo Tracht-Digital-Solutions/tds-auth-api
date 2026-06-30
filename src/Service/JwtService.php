@@ -6,6 +6,7 @@ namespace Tds\AuthApi\Service;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Ramsey\Uuid\Uuid;
+use Tds\AuthApi\Domain\AppUser;
 
 /**
  * RS256 JWT issuance + verification. Other services verify against
@@ -20,7 +21,9 @@ use Ramsey\Uuid\Uuid;
  *   exp: int,
  *   jti: string,
  *   admin: bool,
- *   customer_id?: int|null
+ *   customer_id?: int|null,
+ *   uid?: int|null,
+ *   permissions?: list<string>
  * }
  */
 final class JwtService
@@ -37,23 +40,61 @@ final class JwtService
 
     /**
      * Issue an admin JWT. The token has `admin=true` and no
-     * `customer_id`.
+     * `customer_id`. Kept for tests / the refresh fallback path.
      *
      * @return array{token: string, jti: string, expiresAt: int}
      */
     public function issueAdmin(): array
     {
-        return $this->issue(['admin' => true, 'customer_id' => null], 'admin');
+        return $this->issuePrincipal(true, null, null, []);
     }
 
     /**
-     * Issue a customer JWT.
+     * Issue a customer JWT. Kept for tests / the refresh fallback path.
      *
      * @return array{token: string, jti: string, expiresAt: int}
      */
     public function issueCustomer(int $customerId): array
     {
-        return $this->issue(['admin' => false, 'customer_id' => $customerId], (string) $customerId);
+        return $this->issuePrincipal(false, $customerId, null, []);
+    }
+
+    /**
+     * Issue a JWT for a unified user. Admins carry no portal permissions
+     * (they bypass permission checks downstream).
+     *
+     * @return array{token: string, jti: string, expiresAt: int}
+     */
+    public function issueForUser(AppUser $user): array
+    {
+        return $this->issuePrincipal(
+            $user->isAdmin,
+            $user->customerId,
+            $user->id,
+            $user->isAdmin ? [] : $user->permissions,
+        );
+    }
+
+    /**
+     * Issue a JWT for an arbitrary principal. Used by login (via
+     * issueForUser) and by refresh, which carries the existing claims
+     * forward without a DB lookup.
+     *
+     * @param list<string> $permissions
+     * @return array{token: string, jti: string, expiresAt: int}
+     */
+    public function issuePrincipal(bool $admin, ?int $customerId, ?int $uid, array $permissions): array
+    {
+        $subject = $uid !== null
+            ? (string) $uid
+            : ($admin ? 'admin' : (string) ($customerId ?? '0'));
+
+        return $this->issue([
+            'admin' => $admin,
+            'customer_id' => $customerId,
+            'uid' => $uid,
+            'permissions' => array_values($permissions),
+        ], $subject);
     }
 
     /**
@@ -119,7 +160,7 @@ final class JwtService
     }
 
     /**
-     * @param array{admin:bool, customer_id:int|null} $extra
+     * @param array{admin:bool, customer_id:int|null, uid:int|null, permissions:list<string>} $extra
      * @return array{token: string, jti: string, expiresAt: int}
      */
     private function issue(array $extra, string $subject): array

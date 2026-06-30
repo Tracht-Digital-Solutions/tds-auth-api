@@ -12,15 +12,16 @@ final class PdoSessionRepository implements SessionRepository
     {
     }
 
-    public function record(string $jti, ?int $customerId, bool $admin, int $expiresAtUnix): void
+    public function record(string $jti, ?int $customerId, bool $admin, int $expiresAtUnix, ?int $userId = null): void
     {
         $stmt = $this->pdo->prepare(
-            "INSERT INTO session (jti, customer_id, admin, expires_at, created_at) "
-            . "VALUES (:jti, :cid, :admin, FROM_UNIXTIME(:exp), NOW())"
+            "INSERT INTO session (jti, customer_id, user_id, admin, expires_at, created_at) "
+            . "VALUES (:jti, :cid, :uid, :admin, FROM_UNIXTIME(:exp), NOW())"
         );
         $stmt->execute([
             'jti' => $jti,
             'cid' => $customerId,
+            'uid' => $userId,
             'admin' => $admin ? 1 : 0,
             'exp' => $expiresAtUnix,
         ]);
@@ -45,6 +46,14 @@ final class PdoSessionRepository implements SessionRepository
             "UPDATE session SET revoked_at = NOW() WHERE jti = :jti AND revoked_at IS NULL"
         );
         $stmt->execute(['jti' => $jti]);
+    }
+
+    public function revokeAllForUser(int $userId): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE session SET revoked_at = NOW() WHERE user_id = :uid AND revoked_at IS NULL"
+        );
+        $stmt->execute(['uid' => $userId]);
     }
 
     public function listActive(int $limit = 200): array

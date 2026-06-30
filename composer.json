@@ -37,6 +37,7 @@
     "test": "phpunit",
     "migrate": "phinx migrate -e local",
     "migrate:prod": "phinx migrate -e production",
-    "keygen": "php bin/keygen.php"
+    "keygen": "php bin/keygen.php",
+    "create-admin": "php bin/create-admin.php"
   }
 }

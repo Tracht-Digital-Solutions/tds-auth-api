@@ -3,50 +3,26 @@ declare(strict_types=1);
 
 namespace Tds\AuthApi\Tests\Action\Admin;
 
-use PDO;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response;
 use Tds\AuthApi\Action\Admin\CreateCustomerCredentialAction;
+use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
 
 final class CreateCustomerCredentialActionTest extends TestCase
 {
-    private PDO $pdo;
+    private FakeAppUserRepository $users;
 
     protected function setUp(): void
     {
-        $dsn = getenv('TDS_TEST_DB_DSN') ?: '';
-        if ($dsn === '') {
-            self::markTestSkipped('Set TDS_TEST_DB_DSN to run credential creation tests.');
-        }
-
-        $this->pdo = new PDO(
-            $dsn,
-            getenv('TDS_TEST_DB_USER') ?: null,
-            getenv('TDS_TEST_DB_PASS') ?: null,
-            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION],
-        );
-
-        $this->pdo->exec('DROP TABLE IF EXISTS customer_credential');
-        $this->pdo->exec(<<<'SQL'
-            CREATE TABLE customer_credential (
-              id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-              customer_id INT NOT NULL,
-              email VARCHAR(254) NOT NULL,
-              password_hash VARCHAR(255) NOT NULL,
-              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              PRIMARY KEY (id),
-              UNIQUE KEY uniq_email (email)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        SQL);
+        $this->users = new FakeAppUserRepository();
     }
 
     public function test_non_array_body_returns_400(): void
     {
         $request = (new ServerRequestFactory())->createServerRequest('POST', '/admin/customer-credentials');
-        $response = (new CreateCustomerCredentialAction($this->pdo))($request, new Response());
+        $response = (new CreateCustomerCredentialAction($this->users))($request, new Response());
 
         self::assertSame(400, $response->getStatusCode());
     }
@@ -84,18 +60,21 @@ final class CreateCustomerCredentialActionTest extends TestCase
         self::assertSame(422, $response->getStatusCode());
     }
 
-    public function test_happy_path_returns_201_and_persists(): void
+    public function test_happy_path_returns_201_and_creates_customer_user(): void
     {
         $response = $this->post([
-            'customer_id' => 1,
+            'customer_id' => 5,
             'email' => 'user@example.com',
             'password' => 'sixteen-char-pwd',
         ]);
 
         self::assertSame(201, $response->getStatusCode());
-        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM customer_credential WHERE email = 'user@example.com'")
-            ->fetchColumn();
-        self::assertSame(1, $count);
+        $user = $this->users->findByEmail('user@example.com');
+        self::assertNotNull($user);
+        self::assertFalse($user->isAdmin);
+        self::assertSame(5, $user->customerId);
+        // Default onboarding grants full portal access.
+        self::assertContains('invoices:pay', $user->permissions);
     }
 
     public function test_duplicate_email_returns_409(): void
@@ -122,6 +101,6 @@ final class CreateCustomerCredentialActionTest extends TestCase
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/admin/customer-credentials')
             ->withParsedBody($payload);
-        return (new CreateCustomerCredentialAction($this->pdo))($request, new Response());
+        return (new CreateCustomerCredentialAction($this->users))($request, new Response());
     }
 }
