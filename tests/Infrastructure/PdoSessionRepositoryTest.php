@@ -38,12 +38,14 @@ final class PdoSessionRepositoryTest extends TestCase
             CREATE TABLE session (
               jti VARCHAR(36) NOT NULL,
               customer_id INT NULL,
+              user_id INT NULL,
               admin TINYINT(1) NOT NULL DEFAULT 0,
               expires_at DATETIME NOT NULL,
               created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
               revoked_at DATETIME NULL,
               PRIMARY KEY (jti),
               KEY idx_customer_id (customer_id),
+              KEY idx_user_id (user_id),
               KEY idx_expires_at (expires_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         SQL);
@@ -87,6 +89,27 @@ final class PdoSessionRepositoryTest extends TestCase
         $row = $this->pdo->query("SELECT customer_id, admin FROM session WHERE jti = 'jti-4'")->fetch();
         self::assertSame(99, (int) $row['customer_id']);
         self::assertSame(0, (int) $row['admin']);
+    }
+
+    public function test_record_persists_user_id(): void
+    {
+        $this->repo->record('jti-uid', 5, false, time() + 900, 1234);
+
+        $row = $this->pdo->query("SELECT user_id FROM session WHERE jti = 'jti-uid'")->fetch();
+        self::assertSame(1234, (int) $row['user_id']);
+    }
+
+    public function test_revoke_all_for_user_revokes_every_session(): void
+    {
+        $this->repo->record('jti-u-a', 5, false, time() + 900, 7);
+        $this->repo->record('jti-u-b', 5, false, time() + 900, 7);
+        $this->repo->record('jti-other', 5, false, time() + 900, 8);
+
+        $this->repo->revokeAllForUser(7);
+
+        self::assertTrue($this->repo->isRevoked('jti-u-a'));
+        self::assertTrue($this->repo->isRevoked('jti-u-b'));
+        self::assertFalse($this->repo->isRevoked('jti-other'));
     }
 
     public function test_list_active_returns_unrevoked_unexpired_sessions(): void
