@@ -131,8 +131,10 @@ final class Bootstrap
     /** @return string[] */
     private static function corsOrigins(): array
     {
-        $raw = $_ENV['CORS_ALLOWED_ORIGINS'] ?? getenv('CORS_ALLOWED_ORIGINS') ?: '';
-        return array_values(array_filter(array_map('trim', explode(',', (string) $raw))));
+        // Use the safe env() helper — NOT the `?? getenv() ?: ''` one-liner the
+        // comment above warns against (the `??`-binds-tighter-than-`?:` trap).
+        $raw = self::env('CORS_ALLOWED_ORIGINS', '');
+        return array_values(array_filter(array_map('trim', explode(',', $raw))));
     }
 
     private static function loadPrivateKey(string $rootDir): string
