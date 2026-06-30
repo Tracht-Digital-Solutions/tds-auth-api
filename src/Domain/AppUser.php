@@ -23,6 +23,8 @@ final class AppUser
         public readonly array $permissions,
         public readonly string $status,
         public readonly string $passwordHash,
+        /** When true the user must set a new password before using either panel. */
+        public readonly bool $mustChangePassword = false,
     ) {
     }
 
@@ -42,6 +44,7 @@ final class AppUser
             'customerId' => $this->customerId,
             'permissions' => $this->permissions,
             'status' => $this->status,
+            'mustChangePassword' => $this->mustChangePassword,
         ];
     }
 }

@@ -74,6 +74,11 @@ final class ChangePasswordAction
         }
 
         $this->users->updatePassword($user->id, $hash);
+        // A self-chosen password clears any forced-change flag (the bootstrap
+        // admin or an admin-issued temp password is now replaced).
+        if ($user->mustChangePassword) {
+            $this->users->update($user->id, ['must_change_password' => false]);
+        }
 
         // Revoke the current jti, then issue a fresh session so the caller
         // stays logged in. Other devices on the old jti fail their next refresh.

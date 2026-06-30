@@ -83,8 +83,12 @@ if ($existing !== null) {
 }
 
 $id = $users->create($email, $hash, null, true, null, [], 'active');
+if ($generated) {
+    // The generated password is temporary — force a change on first login.
+    $users->update($id, ['must_change_password' => true]);
+}
 echo "Created admin user {$email} (id {$id}).\n";
 if ($generated) {
     echo "Temporary password: {$password}\n";
-    echo "Log in at the admin panel and change it under your account.\n";
+    echo "Log in at the admin panel — you'll be prompted to set a new password.\n";
 }

@@ -88,6 +88,18 @@ final class ChangePasswordActionTest extends TestCase
         self::assertNotEmpty($this->sessions->sessions);
     }
 
+    public function test_clears_must_change_password_flag(): void
+    {
+        $id = $this->seed('temp-password-123');
+        $this->users->update($id, ['must_change_password' => true]);
+        self::assertTrue($this->users->findById($id)?->mustChangePassword);
+
+        $response = $this->change($id, ['old' => 'temp-password-123', 'new' => 'chosen-password-456']);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertFalse($this->users->findById($id)?->mustChangePassword, 'flag must be cleared');
+    }
+
     public function test_unknown_user_revokes_and_returns_401(): void
     {
         $response = $this->change(999, ['old' => 'whatever-1234', 'new' => 'another-1234'], 'j');

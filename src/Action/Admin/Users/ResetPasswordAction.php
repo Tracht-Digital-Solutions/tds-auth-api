@@ -43,6 +43,8 @@ final class ResetPasswordAction
         }
 
         $this->users->updatePassword($id, $hash);
+        // The temp password is admin-issued — force the user to set their own.
+        $this->users->update($id, ['must_change_password' => true]);
         $this->sessions->revokeAllForUser($id);
 
         return $this->json($response, 200, ['tempPassword' => $password]);

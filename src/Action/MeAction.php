@@ -43,6 +43,7 @@ final class MeAction
             'isAdmin' => $user->isAdmin,
             'customerId' => $user->customerId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
+            'mustChangePassword' => $user->mustChangePassword,
         ]);
     }
 

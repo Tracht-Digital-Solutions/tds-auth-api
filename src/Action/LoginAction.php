@@ -87,6 +87,7 @@ final class LoginAction
             'isAdmin' => $user->isAdmin,
             'customerId' => $user->customerId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
+            'mustChangePassword' => $user->mustChangePassword,
         ]);
         return $response->withHeader('Set-Cookie', $this->cookies->set($issued['token'], $this->jwt->ttl()));
     }

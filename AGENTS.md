@@ -47,11 +47,21 @@ read.)
   (verifies signature + session revocation).
 - `GET /.well-known/jwks.json` — public key in JWKS format.
 
-Bootstrap the first admin (the shared-token paste login is gone):
+Bootstrap the first admin (the shared-token paste login is gone). Two paths,
+both flag the account `must_change_password` so the first login is forced
+through the change-password screen before the panel opens:
 
-```bash
-composer create-admin -- you@example.com [password]
-```
+- **Seed migration** (`20260701000002_seed_bootstrap_admin`): on the first
+  `composer migrate`, if no admin exists yet, seeds ONE admin from
+  `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` (defaults
+  `admin@tracht-digital.de` / `tds-setup-admin`). Idempotent — skips when an
+  admin already exists or the email is taken. This is the no-SSH setup path.
+- **Script** (manual): `composer create-admin -- you@example.com [password]`.
+
+The `must_change_password` flag is surfaced by `POST /login` + `GET /me`
+(`mustChangePassword`) and cleared by `PUT /password`. An admin-issued temp
+password (generated on user-create, or `POST /reset-password`) sets it too, so
+any handed-out credential forces the recipient to pick their own.
 
 ## Key generation
 

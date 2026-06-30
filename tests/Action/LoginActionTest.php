@@ -119,6 +119,17 @@ final class LoginActionTest extends TestCase
         self::assertNull($body['customerId']);
     }
 
+    public function test_login_reports_must_change_password_flag(): void
+    {
+        $id = $this->seed('admin@example.com', 'temp-setup-pass', isAdmin: true, customerId: null, permissions: []);
+        $this->users->update($id, ['must_change_password' => true]);
+
+        $response = $this->login(['email' => 'admin@example.com', 'password' => 'temp-setup-pass']);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertTrue($this->jsonBody($response)['mustChangePassword']);
+    }
+
     public function test_email_lookup_is_case_insensitive(): void
     {
         $this->seed('user@example.com', 'correct-horse-battery');

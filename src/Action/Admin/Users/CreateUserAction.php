@@ -81,6 +81,11 @@ final class CreateUserAction
         }
 
         $id = $this->users->create($email, $hash, $name, $isAdmin, $customerId, $permissions, $status);
+        // A generated temp password is admin-issued — force a change on first
+        // login. An explicitly-provided password is left as the admin set it.
+        if ($generated) {
+            $this->users->update($id, ['must_change_password' => true]);
+        }
         $user = $this->users->findById($id);
 
         $payload = ['user' => $user?->toPublicArray()];

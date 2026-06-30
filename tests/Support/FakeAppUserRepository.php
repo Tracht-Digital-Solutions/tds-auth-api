@@ -86,6 +86,7 @@ final class FakeAppUserRepository implements AppUserRepository
             permissions: array_key_exists('permissions', $fields) ? Permissions::sanitize($fields['permissions']) : $u->permissions,
             status: array_key_exists('status', $fields) ? (string) $fields['status'] : $u->status,
             passwordHash: $u->passwordHash,
+            mustChangePassword: array_key_exists('must_change_password', $fields) ? (bool) $fields['must_change_password'] : $u->mustChangePassword,
         );
     }
 
@@ -104,6 +105,7 @@ final class FakeAppUserRepository implements AppUserRepository
             permissions: $u->permissions,
             status: $u->status,
             passwordHash: $passwordHash,
+            mustChangePassword: $u->mustChangePassword,
         );
     }
 
