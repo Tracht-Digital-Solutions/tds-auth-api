@@ -47,7 +47,6 @@ final class CreateAppUser extends AbstractMigration
                 'invoices:pay',
                 'documents:read',
                 'documents:write',
-                'documents:sign',
                 'messages:read',
                 'messages:write',
             ], JSON_THROW_ON_ERROR);

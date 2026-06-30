@@ -17,7 +17,6 @@ final class Permissions
         'invoices:pay',
         'documents:read',
         'documents:write',
-        'documents:sign',
         'messages:read',
         'messages:write',
     ];
