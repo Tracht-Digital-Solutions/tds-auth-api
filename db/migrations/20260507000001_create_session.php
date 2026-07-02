@@ -13,7 +13,11 @@ final class CreateSession extends AbstractMigration
             'engine' => 'InnoDB',
             'collation' => 'utf8mb4_unicode_ci',
         ])
-            ->addColumn('jti', 'uuid', ['limit' => 36])
+            // Explicit NOT NULL: MySQL 8 rejects a nullable PRIMARY KEY column
+            // (error 1171), whereas MariaDB silently coerces it. Phinx's `uuid`
+            // type doesn't emit NOT NULL on its own, so a fresh install on
+            // MySQL 8 failed at CreateSession without this.
+            ->addColumn('jti', 'uuid', ['limit' => 36, 'null' => false])
             ->addColumn('customer_id', 'integer', ['null' => true])
             ->addColumn('admin', 'boolean', ['default' => false])
             ->addColumn('expires_at', 'datetime')
