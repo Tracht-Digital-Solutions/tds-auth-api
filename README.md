@@ -60,6 +60,14 @@ state in its `db` field — `ok` (migrated), `no-schema` (reachable but tables
 missing), or `down` (unreachable); the gateway aggregate goes `503` on the
 latter two.
 
+**Setup (bootstrap) admin.** The migrations seed one admin so a fresh install
+can be logged into without SSH — default `admin@tracht-digital.de` /
+`tds-setup-admin`, flagged `must_change_password` so you're forced to set a real
+password on first login. Seeded only when no admin exists; override the default
+with `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` **before** the first
+migrate. Add more admins with `composer create-admin -- email [password]`. Full
+details in `INSTALL.md` §5 and `AGENTS.md`.
+
 Quick test:
 
 ```bash

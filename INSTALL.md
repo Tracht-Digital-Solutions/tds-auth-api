@@ -99,6 +99,35 @@ composer migrate
 composer start         # http://localhost:8003
 ```
 
+### Setup (bootstrap) admin
+
+The `20260701000002_seed_bootstrap_admin` migration seeds **one** admin so a
+freshly-migrated stack can be logged into without SSH — then forces you to
+secure it. It runs **only when no admin exists yet** (idempotent; skips an
+established install or a taken email), and the seeded row carries
+`must_change_password = 1`, so the default credential is useless until you set
+your own password.
+
+| | Default | Override (host `.env`, set **before** the first migrate) |
+|---|---|---|
+| Email | `admin@tracht-digital.de` | `ADMIN_BOOTSTRAP_EMAIL` |
+| Password | `tds-setup-admin` | `ADMIN_BOOTSTRAP_PASSWORD` |
+
+> Set `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` in the host
+> `services/auth/.env` **before** the first migrate so the public default never
+> exists. On production the auth migrations run automatically via the gateway on
+> the first request after deploy (`tds-api-gateway`), so set these first.
+
+**First login → forced password change**
+1. `POST /login` `{"email","password"}` → token + `"mustChangePassword": true`.
+2. `PUT /password` `{"old":"…","new":"…"}` (new ≥ 12 chars, must differ) — sets a
+   real password and clears the forced-change flag. The admin panel shows this as
+   the automatic "change your password" screen on first login.
+
+**More admins / recovery:** `composer create-admin -- you@example.com [password]`
+(promotes an existing user or creates one; generates a strong password if none
+is given). See `AGENTS.md` → *Bootstrapping the first admin* for detail.
+
 ## 6. Verify
 
 ```bash

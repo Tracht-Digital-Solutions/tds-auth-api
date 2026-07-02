@@ -6,6 +6,30 @@ this at 2am".
 
 ---
 
+## Setup (bootstrap) admin
+
+A first-run migration (`seed_bootstrap_admin`) seeds one admin so a
+freshly-migrated stack is usable without SSH. It runs only when no admin exists,
+and the row is flagged `must_change_password`.
+
+- **Defaults:** `admin@tracht-digital.de` / `tds-setup-admin`. Override with
+  `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` in the host
+  `services/auth/.env` **before the first migrate** so the public default is
+  never created.
+- **Secure it on first use:** log into the admin panel (or `POST /login` →
+  `PUT /password {old,new}`, new ≥ 12 chars) to set a real password — this clears
+  the `must_change_password` flag. Then delete `gateway/public/install.php`.
+- **If the default already reached prod** (migrated with defaults / used for a
+  smoke test): treat it as a leaked credential — change it immediately as above,
+  or run `composer create-admin -- <email> <strong-password>`.
+- **Lost admin access / need another admin:**
+  `composer create-admin -- you@example.com [password]` (promotes an existing
+  user or creates one; prints a generated password when none is given). On the
+  host, run it from the bundled service dir (it reads that dir's `.env` for DB
+  creds): `cd services/auth && php bin/create-admin.php <email> [password]`.
+
+---
+
 ## Key rotation (planned)
 
 Use this when:
