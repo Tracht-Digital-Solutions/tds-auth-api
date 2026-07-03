@@ -19,12 +19,17 @@ JWKS endpoint without seeing the private key.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/admin/login` | shared `ADMIN_TOKEN` (body) | Issue admin JWT (cookie + body) |
-| `DELETE` | `/admin/login` | session | Revoke session + clear cookie |
-| `POST` | `/admin/customer-credentials` | Bearer `ADMIN_TOKEN` | Server-to-server: store an argon2id credential for a customer (called by tds-customer-api during onboarding) |
-| `POST` | `/customer/login` | n/a | Email + password → customer JWT (cookie + body) |
+| `POST` | `/login` | email + password | Unified login (admin + customer) → RS256 JWT (cookie + body). `/customer/login` is a back-compat alias |
+| `DELETE` | `/logout` | session | Revoke session + clear cookie. `/admin/login` is a back-compat alias |
+| `GET` | `/me` | session | Current principal (id, email, isAdmin, permissions) |
+| `PUT` | `/password` | session | Change password (drives the forced first-login change) |
+| `POST` | `/admin/customer-credentials` | Bearer `SERVICE_TOKEN`/`ADMIN_TOKEN` | Server-to-server: store an argon2id credential for a customer (called by tds-customer-api during onboarding) |
 | `POST` | `/refresh` | session | Rotate access token |
 | `GET` | `/.well-known/jwks.json` | none | Publish public key for verification |
+
+Admin write endpoints (`/admin/users`, `/admin/sessions`, …) are gated by a
+per-admin JWT (`admin=true`); the shared `ADMIN_TOKEN` Bearer survives only for
+the server-to-server call above (as `SERVICE_TOKEN`).
 
 JWT claims:
 

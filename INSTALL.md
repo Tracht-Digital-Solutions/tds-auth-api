@@ -208,8 +208,8 @@ deploy; pushes to `main` only build the (undeployed) `dev` bundle.
 
 - [tds-shared](https://github.com/Tracht-Digital-Solutions/tds-shared) — type definitions for login payloads
 - [tds-customer-api](https://github.com/Tracht-Digital-Solutions/tds-customer-api) — verifies JWTs against this JWKS, calls back via `POST /admin/customer-credentials`
-- [tds-content-api](https://github.com/Tracht-Digital-Solutions/tds-content-api) — (Phase 4) will swap from `ADMIN_TOKEN` Bearer to JWKS-verified admin JWTs
-- [tds-admin](https://github.com/Tracht-Digital-Solutions/tds-admin) — (Phase 4) will get its admin cookie from this API
+- [tds-content-api](https://github.com/Tracht-Digital-Solutions/tds-content-api) — verifies admin write JWTs against this API's JWKS
+- [tds-admin](https://github.com/Tracht-Digital-Solutions/tds-admin) — gets its admin session cookie from this API's `/login`
 - [tds-customer](https://github.com/Tracht-Digital-Solutions/tds-customer) — gets the customer cookie from this API
 
 ## Troubleshooting

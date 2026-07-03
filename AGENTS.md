@@ -91,7 +91,7 @@ machine. After step (a), feel free to `rm` the file.
   yet. For now, logout works inside the auth domain (refresh stops
   working), and other services accept tokens until natural expiry.
 - `CookieFactory` builds `Domain=.tracht-digital.de` cookies so the
-  same JWT works across `admin.` and `app.` subdomains.
+  same JWT works across `management.` and `app.` subdomains.
 
 ## Tests
 
