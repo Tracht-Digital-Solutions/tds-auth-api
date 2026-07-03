@@ -89,7 +89,7 @@ JWT_PRIVATE_KEY="$(cat keys/private.pem)"
 ADMIN_TOKEN=$(openssl rand -hex 32)
 
 # Comma-separated frontend origins
-CORS_ALLOWED_ORIGINS=http://localhost:4321,https://admin.tracht-digital.de,https://app.tracht-digital.de
+CORS_ALLOWED_ORIGINS=http://localhost:4321,https://management.tracht-digital.de,https://app.tracht-digital.de
 ```
 
 ## 5. Migrate + run

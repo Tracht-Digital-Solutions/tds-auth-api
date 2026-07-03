@@ -10,7 +10,7 @@ use Tds\AuthApi\Tests\Support\StubHandler;
 
 final class CorsMiddlewareTest extends TestCase
 {
-    private const ALLOWED = ['https://admin.tracht-digital.de'];
+    private const ALLOWED = ['https://management.tracht-digital.de'];
 
     private function request(string $method, ?string $origin): \Psr\Http\Message\ServerRequestInterface
     {
