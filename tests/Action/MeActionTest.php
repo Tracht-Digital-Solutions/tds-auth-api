@@ -45,6 +45,27 @@ final class MeActionTest extends TestCase
         self::assertSame([], $body['permissions']);
     }
 
+    public function test_support_agent_flag_is_exposed_for_admins(): void
+    {
+        $this->users->seed(new AppUser(1, 'agent@example.com', 'Agent', true, null, [], 'active', 'x', false, true));
+
+        $body = $this->jsonBody($this->me(['uid' => 1]));
+
+        self::assertTrue($body['isAdmin']);
+        self::assertTrue($body['isSupportAgent']);
+    }
+
+    public function test_support_agent_flag_never_leaks_to_non_admins(): void
+    {
+        // A stray flag on a non-admin row must not surface as a support agent.
+        $this->users->seed(new AppUser(2, 'cust@example.com', 'Cust', false, 7, ['invoices:read'], 'active', 'x', false, true));
+
+        $body = $this->jsonBody($this->me(['uid' => 2]));
+
+        self::assertFalse($body['isAdmin']);
+        self::assertFalse($body['isSupportAgent']);
+    }
+
     public function test_unknown_user_returns_401(): void
     {
         self::assertSame(401, $this->me(['uid' => 999])->getStatusCode());

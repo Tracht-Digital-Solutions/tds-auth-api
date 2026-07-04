@@ -71,8 +71,11 @@ final class FakeAppUserRepository implements AppUserRepository
         return $id;
     }
 
+    public array $lastUpdateFields = [];
+
     public function update(int $id, array $fields): void
     {
+        $this->lastUpdateFields = $fields;
         $u = $this->users[$id] ?? null;
         if ($u === null) {
             return;
@@ -87,6 +90,7 @@ final class FakeAppUserRepository implements AppUserRepository
             status: array_key_exists('status', $fields) ? (string) $fields['status'] : $u->status,
             passwordHash: $u->passwordHash,
             mustChangePassword: array_key_exists('must_change_password', $fields) ? (bool) $fields['must_change_password'] : $u->mustChangePassword,
+            isSupportAgent: array_key_exists('is_support_agent', $fields) ? (bool) $fields['is_support_agent'] : $u->isSupportAgent,
         );
     }
 

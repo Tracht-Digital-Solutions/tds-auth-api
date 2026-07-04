@@ -93,6 +93,33 @@ final class JwtServiceTest extends TestCase
         self::assertSame([], $claims['permissions']);
     }
 
+    public function test_issue_for_admin_agent_carries_support_agent_claim(): void
+    {
+        $agent = new AppUser(
+            id: 2,
+            email: 'agent@example.com',
+            name: 'Agent',
+            isAdmin: true,
+            customerId: null,
+            permissions: [],
+            status: 'active',
+            passwordHash: 'x',
+            mustChangePassword: false,
+            isSupportAgent: true,
+        );
+
+        $claims = $this->jwt->verify($this->jwt->issueForUser($agent)['token']);
+
+        self::assertTrue($claims['admin']);
+        self::assertTrue($claims['support_agent']);
+    }
+
+    public function test_support_agent_claim_false_for_plain_admin(): void
+    {
+        $claims = $this->jwt->verify($this->jwt->issueAdmin()['token']);
+        self::assertFalse($claims['support_agent']);
+    }
+
     public function test_verify_rejects_token_with_wrong_issuer(): void
     {
         $foreign = new JwtService(

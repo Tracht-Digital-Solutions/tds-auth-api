@@ -85,6 +85,7 @@ final class LoginAction
             'expiresAt' => $issued['expiresAt'],
             'userId' => $user->id,
             'isAdmin' => $user->isAdmin,
+            'isSupportAgent' => $user->isAdmin && $user->isSupportAgent,
             'customerId' => $user->customerId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
             'mustChangePassword' => $user->mustChangePassword,

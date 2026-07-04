@@ -13,8 +13,9 @@ use Tds\AuthApi\Service\PasswordGenerator;
 /**
  * POST /admin/users
  *
- * Body: {email, name?, password?, isAdmin?, customerId?, permissions?, status?}.
- * If `password` is omitted a temporary one is generated and returned once.
+ * Body: {email, name?, password?, isAdmin?, isSupportAgent?, customerId?,
+ * permissions?, status?}. If `password` is omitted a temporary one is generated
+ * and returned once. `isSupportAgent` is honoured only for admin accounts.
  *
  * Gated by JwtAuthMiddleware(requireAdmin: true). The PHP validation here is a
  * hand-duplicate of UserCreateSchema in tds-shared — keep them in sync.
@@ -44,6 +45,9 @@ final class CreateUserAction
             : null;
 
         $isAdmin = (bool) ($body['isAdmin'] ?? false);
+        // A support agent is a subset of admins — silently ignore the flag for
+        // non-admin accounts so it can never be set on a customer login.
+        $isSupportAgent = $isAdmin && (bool) ($body['isSupportAgent'] ?? false);
 
         $customerId = null;
         if (isset($body['customerId']) && $body['customerId'] !== null && $body['customerId'] !== '') {
@@ -81,10 +85,19 @@ final class CreateUserAction
         }
 
         $id = $this->users->create($email, $hash, $name, $isAdmin, $customerId, $permissions, $status);
-        // A generated temp password is admin-issued — force a change on first
-        // login. An explicitly-provided password is left as the admin set it.
+        // Fields not carried by create()'s signature are applied as a follow-up
+        // patch: a generated temp password is admin-issued (force a change on
+        // first login; an explicitly-provided password is left as set), and the
+        // support-agent designation.
+        $postCreate = [];
         if ($generated) {
-            $this->users->update($id, ['must_change_password' => true]);
+            $postCreate['must_change_password'] = true;
+        }
+        if ($isSupportAgent) {
+            $postCreate['is_support_agent'] = true;
+        }
+        if ($postCreate !== []) {
+            $this->users->update($id, $postCreate);
         }
         $user = $this->users->findById($id);
 

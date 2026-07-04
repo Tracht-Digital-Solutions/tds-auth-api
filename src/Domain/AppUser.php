@@ -25,6 +25,11 @@ final class AppUser
         public readonly string $passwordHash,
         /** When true the user must set a new password before using either panel. */
         public readonly bool $mustChangePassword = false,
+        /**
+         * Marks an admin as a support agent — tickets can be assigned to this
+         * user (the "Bearbeiter"). Only meaningful when `$isAdmin` is true.
+         */
+        public readonly bool $isSupportAgent = false,
     ) {
     }
 
@@ -41,6 +46,7 @@ final class AppUser
             'email' => $this->email,
             'name' => $this->name,
             'isAdmin' => $this->isAdmin,
+            'isSupportAgent' => $this->isSupportAgent,
             'customerId' => $this->customerId,
             'permissions' => $this->permissions,
             'status' => $this->status,

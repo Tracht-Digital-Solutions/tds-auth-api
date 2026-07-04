@@ -10,7 +10,7 @@ use Tds\AuthApi\Service\AppUserRepository;
 
 final class PdoAppUserRepository implements AppUserRepository
 {
-    private const COLUMNS = 'id, email, password_hash, name, is_admin, customer_id, permissions, status, must_change_password';
+    private const COLUMNS = 'id, email, password_hash, name, is_admin, is_support_agent, customer_id, permissions, status, must_change_password';
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -92,6 +92,10 @@ final class PdoAppUserRepository implements AppUserRepository
             $sets[] = 'is_admin = :admin';
             $params['admin'] = $fields['is_admin'] ? 1 : 0;
         }
+        if (array_key_exists('is_support_agent', $fields)) {
+            $sets[] = 'is_support_agent = :agent';
+            $params['agent'] = $fields['is_support_agent'] ? 1 : 0;
+        }
         if (array_key_exists('customer_id', $fields)) {
             $sets[] = 'customer_id = :cid';
             $params['cid'] = $fields['customer_id'] !== null ? (int) $fields['customer_id'] : null;
@@ -160,6 +164,7 @@ final class PdoAppUserRepository implements AppUserRepository
             status: (string) $row['status'],
             passwordHash: (string) $row['password_hash'],
             mustChangePassword: (bool) ($row['must_change_password'] ?? false),
+            isSupportAgent: (bool) ($row['is_support_agent'] ?? false),
         );
     }
 }

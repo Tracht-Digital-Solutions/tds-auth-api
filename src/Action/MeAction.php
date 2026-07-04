@@ -41,6 +41,7 @@ final class MeAction
             'email' => $user->email,
             'name' => $user->name,
             'isAdmin' => $user->isAdmin,
+            'isSupportAgent' => $user->isAdmin && $user->isSupportAgent,
             'customerId' => $user->customerId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
             'mustChangePassword' => $user->mustChangePassword,

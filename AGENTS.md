@@ -19,9 +19,17 @@ Unified user model: one `app_user` row = one login spanning both panels.
 account to a company (tenant) in the portal, scoped by a `permissions` JSON
 array (the catalog is hand-duplicated in `Domain\Permissions` from tds-shared's
 `PORTAL_PERMISSIONS`). Multiple accounts may share one `customer_id`. The JWT
-carries `admin`, `customer_id`, `uid` and `permissions`. (The old
-`customer_credential` table is left in place for rollback but is no longer
+carries `admin`, `support_agent`, `customer_id`, `uid` and `permissions`. (The
+old `customer_credential` table is left in place for rollback but is no longer
 read.)
+
+`is_support_agent` marks the subset of **admins** that support tickets can be
+assigned to (the "Bearbeiter", read by tds-customer-api / tds-admin). It only
+sticks on admin accounts — `CreateUserAction` / `UpdateUserAction` coerce it to
+`false` for non-admins and clear it when an admin is demoted. It rides the JWT
+as the `support_agent` claim (only for admins), is surfaced on `POST /login` +
+`GET /me` (`isSupportAgent`), and toggling it revokes the user's sessions so the
+claim refreshes on next login.
 
 - `POST /login` (alias `POST /customer/login`) — email + password → JWT for
   both panels. Looks up `app_user`, verifies with `password_verify` (dummy
@@ -36,8 +44,9 @@ read.)
 - `GET|POST /admin/users`, `PATCH|DELETE /admin/users/{id}`,
   `POST /admin/users/{id}/reset-password` — user management, gated by
   `JwtAuthMiddleware(requireAdmin: true)` (per-admin JWT, not the shared
-  token). Authorization-relevant changes (is_admin / permissions / status /
-  customer_id) revoke the user's sessions so the change lands on next login.
+  token). Authorization-relevant changes (is_admin / is_support_agent /
+  permissions / status / customer_id) revoke the user's sessions so the change
+  lands on next login.
 - `GET /admin/sessions`, `DELETE /admin/sessions/{jti}` — same admin-JWT gate.
 - `POST /admin/customer-credentials` — server-to-server, gated by the
   **service token** (`SERVICE_TOKEN`, falls back to `ADMIN_TOKEN`). Called by

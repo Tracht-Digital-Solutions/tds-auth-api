@@ -14,9 +14,11 @@ use Tds\AuthApi\Service\SessionRepository;
 /**
  * PATCH /admin/users/{id}
  *
- * Partial update: {email?, name?, isAdmin?, customerId?, permissions?, status?}.
- * When isAdmin / permissions / status change, the user's active sessions are
- * revoked so the change takes effect on their next login (fresh claims).
+ * Partial update: {email?, name?, isAdmin?, isSupportAgent?, customerId?,
+ * permissions?, status?}. `isSupportAgent` sticks only on admin accounts (and is
+ * cleared when an admin is demoted). When isAdmin / isSupportAgent / permissions
+ * / status / customerId change, the user's active sessions are revoked so the
+ * change takes effect on their next login (fresh claims).
  *
  * Guards against the acting admin locking themselves out. Gated by
  * JwtAuthMiddleware(requireAdmin: true).
@@ -71,6 +73,19 @@ final class UpdateUserAction
             $fields['is_admin'] = (bool) $body['isAdmin'];
         }
 
+        if (array_key_exists('isSupportAgent', $body)) {
+            // A support agent is a subset of admins. Coerce the flag against the
+            // account's resulting admin state (the incoming isAdmin if present,
+            // otherwise the stored one) so it can never stick on a non-admin.
+            $resultingAdmin = array_key_exists('is_admin', $fields)
+                ? (bool) $fields['is_admin']
+                : $user->isAdmin;
+            $fields['is_support_agent'] = $resultingAdmin && (bool) $body['isSupportAgent'];
+        } elseif (array_key_exists('is_admin', $fields) && $fields['is_admin'] === false) {
+            // Demoting an admin to non-admin also clears any agent designation.
+            $fields['is_support_agent'] = false;
+        }
+
         if (array_key_exists('customerId', $body)) {
             if ($body['customerId'] === null || $body['customerId'] === '') {
                 $fields['customer_id'] = null;
@@ -112,6 +127,7 @@ final class UpdateUserAction
 
         // Force a fresh login when authorization-relevant fields change.
         if (array_key_exists('is_admin', $fields)
+            || array_key_exists('is_support_agent', $fields)
             || array_key_exists('permissions', $fields)
             || array_key_exists('status', $fields)
             || array_key_exists('customer_id', $fields)) {

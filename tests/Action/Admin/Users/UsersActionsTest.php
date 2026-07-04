@@ -52,6 +52,28 @@ final class UsersActionsTest extends TestCase
         self::assertArrayNotHasKey('tempPassword', $body);
     }
 
+    public function test_create_admin_support_agent(): void
+    {
+        $body = $this->jsonBody($this->create([
+            'email' => 'agent@example.com',
+            'isAdmin' => true,
+            'isSupportAgent' => true,
+        ]));
+        self::assertTrue($body['user']['isAdmin']);
+        self::assertTrue($body['user']['isSupportAgent']);
+    }
+
+    public function test_create_ignores_support_agent_for_non_admin(): void
+    {
+        $body = $this->jsonBody($this->create([
+            'email' => 'cust@example.com',
+            'isAdmin' => false,
+            'isSupportAgent' => true,
+        ]));
+        self::assertFalse($body['user']['isAdmin']);
+        self::assertFalse($body['user']['isSupportAgent']);
+    }
+
     public function test_create_rejects_duplicate_email(): void
     {
         $this->users->seed(new AppUser(1, 'dup@example.com', null, false, 1, [], 'active', 'x'));
@@ -95,6 +117,37 @@ final class UsersActionsTest extends TestCase
     public function test_update_missing_user_returns_404(): void
     {
         self::assertSame(404, $this->update(999, ['name' => 'X'], actingUid: 1)->getStatusCode());
+    }
+
+    public function test_update_sets_support_agent_and_revokes_sessions(): void
+    {
+        $this->users->seed(new AppUser(5, 'a@example.com', null, true, null, [], 'active', 'x'));
+
+        $response = $this->update(5, ['isSupportAgent' => true], actingUid: 1);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertTrue($this->jsonBody($response)['user']['isSupportAgent']);
+        self::assertContains(5, $this->sessions->revokedUsers);
+    }
+
+    public function test_update_support_agent_ignored_for_non_admin(): void
+    {
+        $this->users->seed(new AppUser(5, 'c@example.com', null, false, 7, [], 'active', 'x'));
+
+        $response = $this->update(5, ['isSupportAgent' => true], actingUid: 1);
+
+        self::assertFalse($this->jsonBody($response)['user']['isSupportAgent']);
+    }
+
+    public function test_update_demoting_admin_clears_support_agent(): void
+    {
+        $this->users->seed(new AppUser(5, 'a@example.com', null, true, null, [], 'active', 'x', false, true));
+
+        $response = $this->update(5, ['isAdmin' => false], actingUid: 1);
+
+        $body = $this->jsonBody($response);
+        self::assertFalse($body['user']['isAdmin']);
+        self::assertFalse($body['user']['isSupportAgent']);
     }
 
     public function test_update_self_cannot_drop_admin(): void
