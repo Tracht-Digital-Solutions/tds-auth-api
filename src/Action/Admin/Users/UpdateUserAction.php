@@ -6,7 +6,6 @@ namespace Tds\AuthApi\Action\Admin\Users;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
-use Tds\AuthApi\Domain\Permissions;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\SessionRepository;
@@ -14,11 +13,13 @@ use Tds\AuthApi\Service\SessionRepository;
 /**
  * PATCH /admin/users/{id}
  *
- * Partial update: {email?, name?, isAdmin?, isSupportAgent?, customerId?,
- * permissions?, status?}. `isSupportAgent` sticks only on admin accounts (and is
- * cleared when an admin is demoted). When isAdmin / isSupportAgent / permissions
- * / status / customerId change, the user's active sessions are revoked so the
- * change takes effect on their next login (fresh claims).
+ * Partial update: {email?, name?, isAdmin?, isSupportAgent?, memberships?,
+ * customerId?, permissions?, status?}. Passing `memberships` (or the legacy
+ * `customerId`+`permissions` fallback) replaces the account's full company
+ * membership set. `isSupportAgent` sticks only on admin accounts (and is cleared
+ * when an admin is demoted). When isAdmin / isSupportAgent / memberships / status
+ * change, the user's active sessions are revoked so the change takes effect on
+ * their next login (fresh claims).
  *
  * Guards against the acting admin locking themselves out. Gated by
  * JwtAuthMiddleware(requireAdmin: true).
@@ -86,21 +87,10 @@ final class UpdateUserAction
             $fields['is_support_agent'] = false;
         }
 
-        if (array_key_exists('customerId', $body)) {
-            if ($body['customerId'] === null || $body['customerId'] === '') {
-                $fields['customer_id'] = null;
-            } else {
-                $cid = (int) $body['customerId'];
-                if ($cid <= 0) {
-                    return $this->json($response, 422, ['error' => 'customerId must be a positive integer']);
-                }
-                $fields['customer_id'] = $cid;
-            }
-        }
-
-        if (array_key_exists('permissions', $body)) {
-            $fields['permissions'] = Permissions::sanitize($body['permissions']);
-        }
+        // Company memberships are handled below via setMemberships (which also
+        // syncs the legacy customer_id/permissions columns), not as plain fields.
+        $membershipsPresent = MembershipPayload::present($body);
+        $memberships = $membershipsPresent ? MembershipPayload::resolve($body) : [];
 
         if (array_key_exists('status', $body)) {
             $status = (string) $body['status'];
@@ -119,18 +109,22 @@ final class UpdateUserAction
             }
         }
 
-        if ($fields === []) {
+        if ($fields === [] && !$membershipsPresent) {
             return $this->json($response, 200, ['user' => $user->toPublicArray()]);
         }
 
-        $this->users->update($id, $fields);
+        if ($fields !== []) {
+            $this->users->update($id, $fields);
+        }
+        if ($membershipsPresent) {
+            $this->users->setMemberships($id, $memberships);
+        }
 
         // Force a fresh login when authorization-relevant fields change.
-        if (array_key_exists('is_admin', $fields)
+        if ($membershipsPresent
+            || array_key_exists('is_admin', $fields)
             || array_key_exists('is_support_agent', $fields)
-            || array_key_exists('permissions', $fields)
-            || array_key_exists('status', $fields)
-            || array_key_exists('customer_id', $fields)) {
+            || array_key_exists('status', $fields)) {
             $this->sessions->revokeAllForUser($id);
         }
 

@@ -5,6 +5,7 @@ namespace Tds\AuthApi\Infrastructure;
 
 use PDO;
 use Tds\AuthApi\Domain\AppUser;
+use Tds\AuthApi\Domain\Membership;
 use Tds\AuthApi\Domain\Permissions;
 use Tds\AuthApi\Service\AppUserRepository;
 
@@ -59,6 +60,7 @@ final class PdoAppUserRepository implements AppUserRepository
         array $permissions,
         string $status = 'active',
     ): int {
+        $perms = Permissions::sanitize($permissions);
         $stmt = $this->pdo->prepare(
             'INSERT INTO app_user (email, password_hash, name, is_admin, customer_id, permissions, status, created_at, updated_at) '
             . 'VALUES (:email, :hash, :name, :admin, :cid, :perms, :status, NOW(), NOW())'
@@ -69,10 +71,88 @@ final class PdoAppUserRepository implements AppUserRepository
             'name' => $name,
             'admin' => $isAdmin ? 1 : 0,
             'cid' => $customerId,
-            'perms' => json_encode(Permissions::sanitize($permissions)),
+            'perms' => json_encode($perms),
             'status' => $status,
         ]);
-        return (int) $this->pdo->lastInsertId();
+        $id = (int) $this->pdo->lastInsertId();
+
+        // Mirror the primary company as a membership row so the many-to-many is
+        // the single source of truth from creation onward.
+        if ($customerId !== null) {
+            $ins = $this->pdo->prepare(
+                'INSERT INTO app_user_customer (user_id, customer_id, permissions, created_at) '
+                . 'VALUES (:uid, :cid, :perms, NOW())'
+            );
+            $ins->execute(['uid' => $id, 'cid' => $customerId, 'perms' => json_encode($perms)]);
+        }
+        return $id;
+    }
+
+    public function setMemberships(int $userId, array $memberships): void
+    {
+        // Normalise + de-dupe by customer_id (last wins), preserving order.
+        $byCustomer = [];
+        foreach ($memberships as $m) {
+            $cid = (int) ($m['customerId'] ?? 0);
+            if ($cid <= 0) {
+                continue;
+            }
+            $byCustomer[$cid] = Permissions::sanitize($m['permissions'] ?? []);
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $del = $this->pdo->prepare('DELETE FROM app_user_customer WHERE user_id = :uid');
+            $del->execute(['uid' => $userId]);
+
+            $ins = $this->pdo->prepare(
+                'INSERT INTO app_user_customer (user_id, customer_id, permissions, created_at) '
+                . 'VALUES (:uid, :cid, :perms, NOW())'
+            );
+            foreach ($byCustomer as $cid => $perms) {
+                $ins->execute(['uid' => $userId, 'cid' => $cid, 'perms' => json_encode($perms)]);
+            }
+
+            // Sync the legacy primary columns to the first membership.
+            $primaryCid = null;
+            $primaryPerms = [];
+            foreach ($byCustomer as $cid => $perms) {
+                $primaryCid = $cid;
+                $primaryPerms = $perms;
+                break;
+            }
+            $sync = $this->pdo->prepare(
+                'UPDATE app_user SET customer_id = :cid, permissions = :perms, updated_at = NOW() WHERE id = :uid'
+            );
+            $sync->execute([
+                'uid' => $userId,
+                'cid' => $primaryCid,
+                'perms' => json_encode($primaryPerms),
+            ]);
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /** @return list<Membership> */
+    private function membershipsForUser(int $userId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT customer_id, permissions FROM app_user_customer WHERE user_id = :uid ORDER BY id ASC'
+        );
+        $stmt->execute(['uid' => $userId]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $decoded = json_decode((string) ($row['permissions'] ?? '[]'), true);
+            $out[] = new Membership(
+                customerId: (int) $row['customer_id'],
+                permissions: Permissions::sanitize(is_array($decoded) ? $decoded : []),
+            );
+        }
+        return $out;
     }
 
     public function update(int $id, array $fields): void
@@ -165,6 +245,7 @@ final class PdoAppUserRepository implements AppUserRepository
             passwordHash: (string) $row['password_hash'],
             mustChangePassword: (bool) ($row['must_change_password'] ?? false),
             isSupportAgent: (bool) ($row['is_support_agent'] ?? false),
+            memberships: $this->membershipsForUser((int) $row['id']),
         );
     }
 }

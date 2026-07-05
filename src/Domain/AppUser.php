@@ -13,13 +13,18 @@ namespace Tds\AuthApi\Domain;
  */
 final class AppUser
 {
-    /** @param list<string> $permissions */
+    /**
+     * @param list<string> $permissions primary (default) company's permissions
+     * @param list<Membership> $memberships all company memberships
+     */
     public function __construct(
         public readonly int $id,
         public readonly string $email,
         public readonly ?string $name,
         public readonly bool $isAdmin,
+        /** @deprecated primary membership's company — read `$memberships`. */
         public readonly ?int $customerId,
+        /** @deprecated primary membership's permissions — read `$memberships`. */
         public readonly array $permissions,
         public readonly string $status,
         public readonly string $passwordHash,
@@ -30,6 +35,7 @@ final class AppUser
          * user (the "Bearbeiter"). Only meaningful when `$isAdmin` is true.
          */
         public readonly bool $isSupportAgent = false,
+        public readonly array $memberships = [],
     ) {
     }
 
@@ -47,6 +53,7 @@ final class AppUser
             'name' => $this->name,
             'isAdmin' => $this->isAdmin,
             'isSupportAgent' => $this->isSupportAgent,
+            'memberships' => array_map(static fn (Membership $m): array => $m->toArray(), $this->memberships),
             'customerId' => $this->customerId,
             'permissions' => $this->permissions,
             'status' => $this->status,

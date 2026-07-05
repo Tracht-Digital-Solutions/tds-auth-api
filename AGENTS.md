@@ -15,11 +15,17 @@ root. The build model is dev/release (see README): a push to `main` auto-assembl
 ## Endpoints
 
 Unified user model: one `app_user` row = one login spanning both panels.
-`is_admin` grants admin-panel access; a non-null `customer_id` ties the
-account to a company (tenant) in the portal, scoped by a `permissions` JSON
-array (the catalog is hand-duplicated in `Domain\Permissions` from tds-shared's
-`PORTAL_PERMISSIONS`). Multiple accounts may share one `customer_id`. The JWT
-carries `admin`, `support_agent`, `customer_id`, `uid` and `permissions`. (The
+`is_admin` grants admin-panel access; portal access is a set of **company
+memberships** in `app_user_customer` — a login can belong to **several**
+companies, each with its own `permissions` JSON array (catalog hand-duplicated
+in `Domain\Permissions` from tds-shared's `PORTAL_PERMISSIONS` — includes
+`tickets:read`/`tickets:write`). `app_user.customer_id` + `permissions` are the
+denormalised **primary** membership (the default active company), kept in sync
+with the first membership row by `PdoAppUserRepository::setMemberships`. Multiple
+accounts may share a company. The JWT carries `admin`, `support_agent`,
+`customer_id` (primary), `uid`, `permissions` (primary) and **`companies`**
+(the full membership list `[{id, permissions}]`); the portal picks one active
+company per session and customer-api enforces that company's permissions. (The
 old `customer_credential` table is left in place for rollback but is no longer
 read.)
 

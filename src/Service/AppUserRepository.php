@@ -46,4 +46,13 @@ interface AppUserRepository
     public function delete(int $id): bool;
 
     public function emailExists(string $email, ?int $exceptId = null): bool;
+
+    /**
+     * Replace a user's full set of company memberships. Also syncs the legacy
+     * `app_user.customer_id` / `permissions` columns to the primary (first)
+     * membership (or NULL / [] when the list is empty).
+     *
+     * @param list<array{customerId:int, permissions:list<string>}> $memberships
+     */
+    public function setMemberships(int $userId, array $memberships): void;
 }

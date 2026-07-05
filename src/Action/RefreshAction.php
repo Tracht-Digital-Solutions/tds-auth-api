@@ -53,6 +53,9 @@ final class RefreshAction
         $permissions = isset($claims['permissions']) && is_array($claims['permissions'])
             ? array_values(array_map('strval', $claims['permissions']))
             : [];
+        $companies = isset($claims['companies']) && is_array($claims['companies'])
+            ? $this->normaliseCompanies($claims['companies'])
+            : [];
 
         if (!$admin && $customerId === null) {
             throw new \RuntimeException('non-admin without customer_id');
@@ -61,7 +64,7 @@ final class RefreshAction
         // Carry the principal forward without a DB lookup. Authorization
         // changes take effect via session revocation (see UpdateUserAction),
         // which forces a fresh login rather than relying on refresh.
-        $issued = $this->jwt->issuePrincipal($admin, $customerId, $uid, $permissions, $supportAgent);
+        $issued = $this->jwt->issuePrincipal($admin, $customerId, $uid, $permissions, $supportAgent, $companies);
 
         $this->sessions->record($issued['jti'], $customerId, $admin, $issued['expiresAt'], $uid);
 
@@ -70,6 +73,30 @@ final class RefreshAction
             'expiresAt' => $issued['expiresAt'],
         ]);
         return $response->withHeader('Set-Cookie', $this->cookies->set($issued['token'], $this->jwt->ttl()));
+    }
+
+    /**
+     * Coerce the decoded `companies` claim (each entry may be an array or a
+     * stdClass after JWT decode) into the shape issuePrincipal expects.
+     *
+     * @param array<int,mixed> $raw
+     * @return list<array{id:int, permissions:list<string>}>
+     */
+    private function normaliseCompanies(array $raw): array
+    {
+        $out = [];
+        foreach ($raw as $entry) {
+            $e = (array) $entry;
+            $id = isset($e['id']) ? (int) $e['id'] : 0;
+            if ($id <= 0) {
+                continue;
+            }
+            $perms = isset($e['permissions']) && is_array($e['permissions'])
+                ? array_values(array_map('strval', $e['permissions']))
+                : [];
+            $out[] = ['id' => $id, 'permissions' => $perms];
+        }
+        return $out;
     }
 
     private function extractToken(ServerRequestInterface $request): ?string

@@ -19,6 +19,8 @@ final class Permissions
         'documents:write',
         'messages:read',
         'messages:write',
+        'tickets:read',
+        'tickets:write',
     ];
 
     /**

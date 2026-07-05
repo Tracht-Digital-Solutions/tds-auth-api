@@ -6,16 +6,18 @@ namespace Tds\AuthApi\Action\Admin\Users;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
-use Tds\AuthApi\Domain\Permissions;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\PasswordGenerator;
 
 /**
  * POST /admin/users
  *
- * Body: {email, name?, password?, isAdmin?, isSupportAgent?, customerId?,
- * permissions?, status?}. If `password` is omitted a temporary one is generated
- * and returned once. `isSupportAgent` is honoured only for admin accounts.
+ * Body: {email, name?, password?, isAdmin?, isSupportAgent?, memberships?,
+ * customerId?, permissions?, status?}. `memberships` is a list of
+ * {customerId, permissions}; the legacy `customerId`+`permissions` pair is
+ * accepted as a single-membership fallback. If `password` is omitted a temporary
+ * one is generated and returned once. `isSupportAgent` is honoured only for
+ * admin accounts.
  *
  * Gated by JwtAuthMiddleware(requireAdmin: true). The PHP validation here is a
  * hand-duplicate of UserCreateSchema in tds-shared — keep them in sync.
@@ -49,20 +51,13 @@ final class CreateUserAction
         // non-admin accounts so it can never be set on a customer login.
         $isSupportAgent = $isAdmin && (bool) ($body['isSupportAgent'] ?? false);
 
-        $customerId = null;
-        if (isset($body['customerId']) && $body['customerId'] !== null && $body['customerId'] !== '') {
-            $customerId = (int) $body['customerId'];
-            if ($customerId <= 0) {
-                return $this->json($response, 422, ['error' => 'customerId must be a positive integer']);
-            }
-        }
+        // Company memberships (new `memberships` shape or legacy customerId+permissions).
+        $memberships = MembershipPayload::resolve($body);
 
         $status = (string) ($body['status'] ?? 'active');
         if (!in_array($status, ['active', 'disabled'], true)) {
             return $this->json($response, 422, ['error' => 'status must be active or disabled']);
         }
-
-        $permissions = Permissions::sanitize($body['permissions'] ?? []);
 
         $providedPassword = isset($body['password']) ? (string) $body['password'] : '';
         $generated = $providedPassword === '';
@@ -84,7 +79,11 @@ final class CreateUserAction
             return $this->json($response, 500, ['error' => 'Hashing failed']);
         }
 
-        $id = $this->users->create($email, $hash, $name, $isAdmin, $customerId, $permissions, $status);
+        // Create the bare login (no company yet), then set the full membership
+        // set — setMemberships also syncs the legacy primary customer/permissions.
+        $id = $this->users->create($email, $hash, $name, $isAdmin, null, [], $status);
+        $this->users->setMemberships($id, $memberships);
+
         // Fields not carried by create()'s signature are applied as a follow-up
         // patch: a generated temp password is admin-issued (force a change on
         // first login; an explicitly-provided password is left as set), and the

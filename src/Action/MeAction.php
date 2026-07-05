@@ -42,6 +42,9 @@ final class MeAction
             'name' => $user->name,
             'isAdmin' => $user->isAdmin,
             'isSupportAgent' => $user->isAdmin && $user->isSupportAgent,
+            'companies' => $user->isAdmin
+                ? []
+                : array_map(static fn ($m) => $m->toArray(), $user->memberships),
             'customerId' => $user->customerId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
             'mustChangePassword' => $user->mustChangePassword,

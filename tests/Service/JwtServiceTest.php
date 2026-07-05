@@ -120,6 +120,46 @@ final class JwtServiceTest extends TestCase
         self::assertFalse($claims['support_agent']);
     }
 
+    public function test_issue_for_multi_company_user_carries_companies_claim(): void
+    {
+        $user = new AppUser(
+            id: 9,
+            email: 'multi@example.com',
+            name: 'Multi',
+            isAdmin: false,
+            customerId: 3,
+            permissions: ['tickets:read'],
+            status: 'active',
+            passwordHash: 'x',
+            mustChangePassword: false,
+            isSupportAgent: false,
+            memberships: [
+                new \Tds\AuthApi\Domain\Membership(3, ['tickets:read', 'tickets:write']),
+                new \Tds\AuthApi\Domain\Membership(5, ['invoices:read']),
+            ],
+        );
+
+        $claims = $this->jwt->verify($this->jwt->issueForUser($user)['token']);
+
+        self::assertCount(2, $claims['companies']);
+        self::assertSame(3, (int) ((array) $claims['companies'][0])['id']);
+        self::assertSame(5, (int) ((array) $claims['companies'][1])['id']);
+        // Flat claims mirror the primary company for backward compatibility.
+        self::assertSame(3, $claims['customer_id']);
+    }
+
+    public function test_admin_carries_no_companies(): void
+    {
+        $admin = new AppUser(
+            id: 1, email: 'a@example.com', name: 'A', isAdmin: true, customerId: null,
+            permissions: [], status: 'active', passwordHash: 'x',
+            memberships: [new \Tds\AuthApi\Domain\Membership(3, ['tickets:read'])],
+        );
+
+        $claims = $this->jwt->verify($this->jwt->issueForUser($admin)['token']);
+        self::assertSame([], $claims['companies']);
+    }
+
     public function test_verify_rejects_token_with_wrong_issuer(): void
     {
         $foreign = new JwtService(

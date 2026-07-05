@@ -7,6 +7,7 @@ use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Ramsey\Uuid\Uuid;
 use Tds\AuthApi\Domain\AppUser;
+use Tds\AuthApi\Domain\Membership;
 
 /**
  * RS256 JWT issuance + verification. Other services verify against
@@ -24,7 +25,8 @@ use Tds\AuthApi\Domain\AppUser;
  *   support_agent?: bool,
  *   customer_id?: int|null,
  *   uid?: int|null,
- *   permissions?: list<string>
+ *   permissions?: list<string>,
+ *   companies?: list<array{id:int, permissions:list<string>}>
  * }
  */
 final class JwtService
@@ -68,12 +70,23 @@ final class JwtService
      */
     public function issueForUser(AppUser $user): array
     {
+        // Non-admins carry their company memberships (id + per-company perms);
+        // the flat customer_id/permissions claims mirror the primary company for
+        // backward compatibility. Admins bypass permissions, so they carry none.
+        $companies = $user->isAdmin
+            ? []
+            : array_map(
+                static fn (Membership $m): array => ['id' => $m->customerId, 'permissions' => $m->permissions],
+                $user->memberships,
+            );
+
         return $this->issuePrincipal(
             $user->isAdmin,
             $user->customerId,
             $user->id,
             $user->isAdmin ? [] : $user->permissions,
             $user->isAdmin && $user->isSupportAgent,
+            $companies,
         );
     }
 
@@ -83,9 +96,10 @@ final class JwtService
      * forward without a DB lookup.
      *
      * @param list<string> $permissions
+     * @param list<array{id:int, permissions:list<string>}> $companies
      * @return array{token: string, jti: string, expiresAt: int}
      */
-    public function issuePrincipal(bool $admin, ?int $customerId, ?int $uid, array $permissions, bool $supportAgent = false): array
+    public function issuePrincipal(bool $admin, ?int $customerId, ?int $uid, array $permissions, bool $supportAgent = false, array $companies = []): array
     {
         $subject = $uid !== null
             ? (string) $uid
@@ -97,6 +111,7 @@ final class JwtService
             'customer_id' => $customerId,
             'uid' => $uid,
             'permissions' => array_values($permissions),
+            'companies' => array_values($companies),
         ], $subject);
     }
 
@@ -163,7 +178,7 @@ final class JwtService
     }
 
     /**
-     * @param array{admin:bool, support_agent:bool, customer_id:int|null, uid:int|null, permissions:list<string>} $extra
+     * @param array{admin:bool, support_agent:bool, customer_id:int|null, uid:int|null, permissions:list<string>, companies:list<array{id:int, permissions:list<string>}>} $extra
      * @return array{token: string, jti: string, expiresAt: int}
      */
     private function issue(array $extra, string $subject): array
