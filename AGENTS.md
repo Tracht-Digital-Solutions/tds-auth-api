@@ -45,8 +45,11 @@ claim refreshes on next login.
 - `DELETE /logout` (alias `DELETE /admin/login`) — revoke session + clear
   cookie (works for any session).
 - `GET /me` — current principal (drives UI gating). Gated by `JwtAuthMiddleware`.
-- `PUT /password` (alias `PUT /customer/password`) — change own password,
-  rotate session. Gated by `JwtAuthMiddleware`.
+- `PUT /password` (alias `PUT /customer/password`) — change own password.
+  Revokes **all** the user's existing sessions (not just the caller's jti — a
+  password change must terminate a lost/stolen device, which could otherwise
+  keep refreshing for the 30-day refresh TTL) and issues a fresh session for
+  the current device so the caller stays logged in. Gated by `JwtAuthMiddleware`.
 - `GET|POST /admin/users`, `PATCH|DELETE /admin/users/{id}`,
   `POST /admin/users/{id}/reset-password` — user management, gated by
   `JwtAuthMiddleware(requireAdmin: true)` (per-admin JWT, not the shared

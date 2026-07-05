@@ -18,8 +18,10 @@ use Tds\AuthApi\Service\SessionRepository;
  * Body: {"old": "...", "new": "..."}.
  *
  * Works for any authenticated user (admin or customer). Verifies the old
- * password, rehashes the new one, revokes the current jti and issues a fresh
- * JWT so other devices on the old token fail their next refresh.
+ * password, rehashes the new one, revokes ALL of the user's existing sessions
+ * and issues a fresh JWT for the current device — so any other session (a lost
+ * or stolen device) is terminated rather than left able to refresh for the
+ * 30-day refresh TTL.
  *
  * Gated by JwtAuthMiddleware (any valid session).
  */
@@ -80,11 +82,14 @@ final class ChangePasswordAction
             $this->users->update($user->id, ['must_change_password' => false]);
         }
 
-        // Revoke the current jti, then issue a fresh session so the caller
-        // stays logged in. Other devices on the old jti fail their next refresh.
-        if ($jti !== '') {
-            $this->sessions->revoke($jti);
-        }
+        // A password change invalidates *every* existing session for this user
+        // (OWASP: changing the password must terminate all other sessions — the
+        // whole point when you're locking out a device you no longer trust), then
+        // we issue + record a fresh one so the caller stays logged in here. Only
+        // revoking the current jti (as before) left other sessions able to keep
+        // refreshing for the 30-day refresh TTL. Matches ResetPasswordAction /
+        // UpdateUserAction, which also revokeAllForUser.
+        $this->sessions->revokeAllForUser($user->id);
         $issued = $this->jwt->issueForUser($user);
         $this->sessions->record($issued['jti'], $user->customerId, $user->isAdmin, $issued['expiresAt'], $user->id);
 

@@ -69,23 +69,32 @@ final class ChangePasswordActionTest extends TestCase
         self::assertSame(401, $this->change($id, ['old' => 'nope-nope-nope', 'new' => 'new-password-456'])->getStatusCode());
     }
 
-    public function test_happy_path_rotates_session_and_rehashes(): void
+    public function test_happy_path_revokes_all_sessions_and_rehashes(): void
     {
         $id = $this->seed('old-password-123');
+        // Two "other device" sessions plus the caller's own session.
+        $this->sessions->record('other-1', 7, false, time() + 900, $id);
+        $this->sessions->record('other-2', 7, false, time() + 900, $id);
         $oldJti = 'old-jti';
+        $this->sessions->record($oldJti, 7, false, time() + 900, $id);
 
         $response = $this->change($id, ['old' => 'old-password-123', 'new' => 'new-password-456'], $oldJti);
 
         self::assertSame(200, $response->getStatusCode());
-        self::assertContains($oldJti, $this->sessions->revoked, 'old jti must be revoked');
+        // Every pre-existing session for the user is terminated — not just the
+        // caller's jti — so a lost/stolen device can't keep refreshing.
+        self::assertContains($id, $this->sessions->revokedUsers, 'all user sessions must be revoked');
+        self::assertTrue($this->sessions->isRevoked('other-1'));
+        self::assertTrue($this->sessions->isRevoked('other-2'));
+        self::assertTrue($this->sessions->isRevoked($oldJti));
 
         // New password verifies against the stored hash.
         $user = $this->users->findById($id);
         self::assertNotNull($user);
         self::assertTrue(password_verify('new-password-456', $user->passwordHash));
 
-        // A fresh session was recorded for the user.
-        self::assertNotEmpty($this->sessions->sessions);
+        // The caller keeps a fresh, live session so they stay logged in here.
+        self::assertNotEmpty($this->sessions->listActive(), 'a fresh session survives for the caller');
     }
 
     public function test_clears_must_change_password_flag(): void
