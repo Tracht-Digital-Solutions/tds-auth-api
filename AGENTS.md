@@ -147,3 +147,17 @@ See INSTALL.md §7 for the throwaway-Docker test DB recipe.
   default. Use explicit `?? false` checks instead. Bit all four
   API repos at once via copy-paste — see #11 (this repo) /
   contact #7 / content #13 / customer #13.
+- Don't add `CorsMiddleware` before `addRoutingMiddleware()`. Slim
+  middleware is LIFO — the LAST added runs FIRST — so CORS must be added
+  AFTER routing/error to be outermost. Added earlier, the routing
+  middleware 405s every OPTIONS preflight (no OPTIONS routes exist) before
+  CORS can short-circuit it, and browsers block every cross-origin
+  JSON/Authorization request, including the panel logins. Bit all four API
+  repos at once via copy-paste; `tests/PreflightTest.php` (an OPTIONS
+  request through the REAL `Bootstrap::createApp()` app) is the regression
+  guard — unit-testing the middleware alone cannot catch the ordering.
+- Don't run `php -S` without `public/router.php` (`composer start` passes
+  it). Without a router script the built-in server 404s any dotted path
+  that has no file on disk — `/.well-known/jwks.json` never reaches Slim
+  and every consumer's JWT verification breaks. Apache (.htaccess) and the
+  gateway's in-process mode don't need it.

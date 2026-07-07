@@ -90,9 +90,14 @@ final class Bootstrap
         AppFactory::setContainer($container);
         $app = AppFactory::create();
         $app->addBodyParsingMiddleware();
-        $app->add(new CorsMiddleware(self::corsOrigins()));
         $app->addRoutingMiddleware();
         $app->addErrorMiddleware(self::env('APP_ENV') !== 'production', true, true);
+        // Slim middleware is LIFO — the LAST added runs FIRST. CORS must be
+        // added after routing/error so it is outermost: otherwise the routing
+        // middleware 405s an OPTIONS preflight (no OPTIONS routes are
+        // registered) before CorsMiddleware can short-circuit it, and the
+        // browser blocks every cross-origin JSON/Authorization request.
+        $app->add(new CorsMiddleware(self::corsOrigins()));
 
         // Per-admin JWT gate (replaces the shared ADMIN_TOKEN for the UI) and a
         // generic any-session gate for /me + /password.
