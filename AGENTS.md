@@ -37,6 +37,16 @@ as the `support_agent` claim (only for admins), is surfaced on `POST /login` +
 `GET /me` (`isSupportAgent`), and toggling it revokes the user's sessions so the
 claim refreshes on next login.
 
+`is_blog_author` marks a login that may **author blog posts** (parallel to
+`is_support_agent` but **independent of `is_admin`** — a non-admin can hold it;
+admins are implicitly authors). It rides the JWT as the `blog_author` claim so
+tds-content-api can gate blog writes without a lookup, is surfaced on `/login` +
+`/me` (`isBlogAuthor`), and toggling it revokes sessions. Two profile fields sit
+alongside it for the public blog author page: `avatar_url` (a plain URL string —
+the image file itself is uploaded to tds-content-api's `/uploads`, auth-api just
+keeps the URL) and `bio`. Both are set via user CRUD (`avatarUrl` / `bio`) and
+returned by `/me` + the user list.
+
 - `POST /login` (alias `POST /customer/login`) — email + password → JWT for
   both panels. Looks up `app_user`, verifies with `password_verify` (dummy
   verify on miss for constant-time behavior), rejects `disabled` accounts with

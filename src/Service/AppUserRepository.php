@@ -34,8 +34,8 @@ interface AppUserRepository
 
     /**
      * Partial update. Recognised keys: email, name, is_admin, is_support_agent,
-     * customer_id, permissions (list<string>), status, must_change_password.
-     * Absent keys are left unchanged.
+     * is_blog_author, avatar_url, bio, customer_id, permissions (list<string>),
+     * status, must_change_password. Absent keys are left unchanged.
      *
      * @param array<string,mixed> $fields
      */

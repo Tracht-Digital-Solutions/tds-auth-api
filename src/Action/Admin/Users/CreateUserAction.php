@@ -12,8 +12,10 @@ use Tds\AuthApi\Service\PasswordGenerator;
 /**
  * POST /admin/users
  *
- * Body: {email, name?, password?, isAdmin?, isSupportAgent?, memberships?,
- * customerId?, permissions?, status?}. `memberships` is a list of
+ * Body: {email, name?, password?, isAdmin?, isSupportAgent?, isBlogAuthor?,
+ * bio?, avatarUrl?, memberships?, customerId?, permissions?, status?}.
+ * `isBlogAuthor` grants blog-authoring access (independent of admin);
+ * `bio`/`avatarUrl` are author profile fields. `memberships` is a list of
  * {customerId, permissions}; the legacy `customerId`+`permissions` pair is
  * accepted as a single-membership fallback. If `password` is omitted a temporary
  * one is generated and returned once. `isSupportAgent` is honoured only for
@@ -50,6 +52,14 @@ final class CreateUserAction
         // A support agent is a subset of admins — silently ignore the flag for
         // non-admin accounts so it can never be set on a customer login.
         $isSupportAgent = $isAdmin && (bool) ($body['isSupportAgent'] ?? false);
+        // Blog authoring is independent of admin (a non-admin may hold it).
+        $isBlogAuthor = (bool) ($body['isBlogAuthor'] ?? false);
+        $bio = isset($body['bio']) && $body['bio'] !== null && trim((string) $body['bio']) !== ''
+            ? mb_substr(trim((string) $body['bio']), 0, 500)
+            : null;
+        $avatarUrl = isset($body['avatarUrl']) && $body['avatarUrl'] !== null && trim((string) $body['avatarUrl']) !== ''
+            ? mb_substr(trim((string) $body['avatarUrl']), 0, 500)
+            : null;
 
         // Company memberships (new `memberships` shape or legacy customerId+permissions).
         $memberships = MembershipPayload::resolve($body);
@@ -94,6 +104,15 @@ final class CreateUserAction
         }
         if ($isSupportAgent) {
             $postCreate['is_support_agent'] = true;
+        }
+        if ($isBlogAuthor) {
+            $postCreate['is_blog_author'] = true;
+        }
+        if ($bio !== null) {
+            $postCreate['bio'] = $bio;
+        }
+        if ($avatarUrl !== null) {
+            $postCreate['avatar_url'] = $avatarUrl;
         }
         if ($postCreate !== []) {
             $this->users->update($id, $postCreate);

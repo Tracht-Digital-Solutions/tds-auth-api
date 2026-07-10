@@ -42,6 +42,8 @@ final class MeAction
             'name' => $user->name,
             'isAdmin' => $user->isAdmin,
             'isSupportAgent' => $user->isAdmin && $user->isSupportAgent,
+            'isBlogAuthor' => $user->isBlogAuthor,
+            'avatarUrl' => $user->avatarUrl,
             'companies' => $user->isAdmin
                 ? []
                 : array_map(static fn ($m) => $m->toArray(), $user->memberships),

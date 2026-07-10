@@ -13,8 +13,9 @@ use Tds\AuthApi\Service\SessionRepository;
 /**
  * PATCH /admin/users/{id}
  *
- * Partial update: {email?, name?, isAdmin?, isSupportAgent?, memberships?,
- * customerId?, permissions?, status?}. Passing `memberships` (or the legacy
+ * Partial update: {email?, name?, isAdmin?, isSupportAgent?, isBlogAuthor?,
+ * bio?, avatarUrl?, memberships?, customerId?, permissions?, status?}.
+ * Passing `memberships` (or the legacy
  * `customerId`+`permissions` fallback) replaces the account's full company
  * membership set. `isSupportAgent` sticks only on admin accounts (and is cleared
  * when an admin is demoted). When isAdmin / isSupportAgent / memberships / status
@@ -87,6 +88,20 @@ final class UpdateUserAction
             $fields['is_support_agent'] = false;
         }
 
+        if (array_key_exists('isBlogAuthor', $body)) {
+            $fields['is_blog_author'] = (bool) $body['isBlogAuthor'];
+        }
+        if (array_key_exists('bio', $body)) {
+            $fields['bio'] = $body['bio'] !== null && trim((string) $body['bio']) !== ''
+                ? mb_substr(trim((string) $body['bio']), 0, 500)
+                : null;
+        }
+        if (array_key_exists('avatarUrl', $body)) {
+            $fields['avatar_url'] = $body['avatarUrl'] !== null && trim((string) $body['avatarUrl']) !== ''
+                ? mb_substr(trim((string) $body['avatarUrl']), 0, 500)
+                : null;
+        }
+
         // Company memberships are handled below via setMemberships (which also
         // syncs the legacy customer_id/permissions columns), not as plain fields.
         $membershipsPresent = MembershipPayload::present($body);
@@ -120,10 +135,12 @@ final class UpdateUserAction
             $this->users->setMemberships($id, $memberships);
         }
 
-        // Force a fresh login when authorization-relevant fields change.
+        // Force a fresh login when authorization-relevant fields change (the
+        // blog_author claim included, so blog access takes effect immediately).
         if ($membershipsPresent
             || array_key_exists('is_admin', $fields)
             || array_key_exists('is_support_agent', $fields)
+            || array_key_exists('is_blog_author', $fields)
             || array_key_exists('status', $fields)) {
             $this->sessions->revokeAllForUser($id);
         }

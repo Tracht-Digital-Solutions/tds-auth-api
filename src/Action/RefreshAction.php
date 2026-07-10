@@ -48,6 +48,7 @@ final class RefreshAction
 
         $admin = (bool) ($claims['admin'] ?? false);
         $supportAgent = (bool) ($claims['support_agent'] ?? false);
+        $blogAuthor = (bool) ($claims['blog_author'] ?? false);
         $customerId = isset($claims['customer_id']) && is_int($claims['customer_id']) ? $claims['customer_id'] : null;
         $uid = isset($claims['uid']) && is_int($claims['uid']) ? $claims['uid'] : null;
         $permissions = isset($claims['permissions']) && is_array($claims['permissions'])
@@ -64,7 +65,7 @@ final class RefreshAction
         // Carry the principal forward without a DB lookup. Authorization
         // changes take effect via session revocation (see UpdateUserAction),
         // which forces a fresh login rather than relying on refresh.
-        $issued = $this->jwt->issuePrincipal($admin, $customerId, $uid, $permissions, $supportAgent, $companies);
+        $issued = $this->jwt->issuePrincipal($admin, $customerId, $uid, $permissions, $supportAgent, $companies, $blogAuthor);
 
         $this->sessions->record($issued['jti'], $customerId, $admin, $issued['expiresAt'], $uid);
 

@@ -35,6 +35,16 @@ final class AppUser
          * user (the "Bearbeiter"). Only meaningful when `$isAdmin` is true.
          */
         public readonly bool $isSupportAgent = false,
+        /**
+         * Grants blog-authoring access (see the `blog_author` JWT claim). A
+         * (usually non-admin) login that may write blog posts and appears as an
+         * author on the public blog. Admins are implicitly authors too.
+         */
+        public readonly bool $isBlogAuthor = false,
+        /** Public profile-picture URL, or null. */
+        public readonly ?string $avatarUrl = null,
+        /** Short author bio shown on the public blog author page, or null. */
+        public readonly ?string $bio = null,
         public readonly array $memberships = [],
     ) {
     }
@@ -53,6 +63,9 @@ final class AppUser
             'name' => $this->name,
             'isAdmin' => $this->isAdmin,
             'isSupportAgent' => $this->isSupportAgent,
+            'isBlogAuthor' => $this->isBlogAuthor,
+            'avatarUrl' => $this->avatarUrl,
+            'bio' => $this->bio,
             'memberships' => array_map(static fn (Membership $m): array => $m->toArray(), $this->memberships),
             'customerId' => $this->customerId,
             'permissions' => $this->permissions,

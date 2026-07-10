@@ -11,7 +11,7 @@ use Tds\AuthApi\Service\AppUserRepository;
 
 final class PdoAppUserRepository implements AppUserRepository
 {
-    private const COLUMNS = 'id, email, password_hash, name, is_admin, is_support_agent, customer_id, permissions, status, must_change_password';
+    private const COLUMNS = 'id, email, password_hash, name, avatar_url, bio, is_admin, is_support_agent, is_blog_author, customer_id, permissions, status, must_change_password';
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -176,6 +176,18 @@ final class PdoAppUserRepository implements AppUserRepository
             $sets[] = 'is_support_agent = :agent';
             $params['agent'] = $fields['is_support_agent'] ? 1 : 0;
         }
+        if (array_key_exists('is_blog_author', $fields)) {
+            $sets[] = 'is_blog_author = :blogauthor';
+            $params['blogauthor'] = $fields['is_blog_author'] ? 1 : 0;
+        }
+        if (array_key_exists('avatar_url', $fields)) {
+            $sets[] = 'avatar_url = :avatar';
+            $params['avatar'] = $fields['avatar_url'] !== null ? (string) $fields['avatar_url'] : null;
+        }
+        if (array_key_exists('bio', $fields)) {
+            $sets[] = 'bio = :bio';
+            $params['bio'] = $fields['bio'] !== null ? (string) $fields['bio'] : null;
+        }
         if (array_key_exists('customer_id', $fields)) {
             $sets[] = 'customer_id = :cid';
             $params['cid'] = $fields['customer_id'] !== null ? (int) $fields['customer_id'] : null;
@@ -245,6 +257,9 @@ final class PdoAppUserRepository implements AppUserRepository
             passwordHash: (string) $row['password_hash'],
             mustChangePassword: (bool) ($row['must_change_password'] ?? false),
             isSupportAgent: (bool) ($row['is_support_agent'] ?? false),
+            isBlogAuthor: (bool) ($row['is_blog_author'] ?? false),
+            avatarUrl: isset($row['avatar_url']) && $row['avatar_url'] !== null ? (string) $row['avatar_url'] : null,
+            bio: isset($row['bio']) && $row['bio'] !== null ? (string) $row['bio'] : null,
             memberships: $this->membershipsForUser((int) $row['id']),
         );
     }

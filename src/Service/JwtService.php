@@ -23,6 +23,7 @@ use Tds\AuthApi\Domain\Membership;
  *   jti: string,
  *   admin: bool,
  *   support_agent?: bool,
+ *   blog_author?: bool,
  *   customer_id?: int|null,
  *   uid?: int|null,
  *   permissions?: list<string>,
@@ -87,6 +88,7 @@ final class JwtService
             $user->isAdmin ? [] : $user->permissions,
             $user->isAdmin && $user->isSupportAgent,
             $companies,
+            $user->isBlogAuthor,
         );
     }
 
@@ -99,7 +101,7 @@ final class JwtService
      * @param list<array{id:int, permissions:list<string>}> $companies
      * @return array{token: string, jti: string, expiresAt: int}
      */
-    public function issuePrincipal(bool $admin, ?int $customerId, ?int $uid, array $permissions, bool $supportAgent = false, array $companies = []): array
+    public function issuePrincipal(bool $admin, ?int $customerId, ?int $uid, array $permissions, bool $supportAgent = false, array $companies = [], bool $blogAuthor = false): array
     {
         $subject = $uid !== null
             ? (string) $uid
@@ -108,6 +110,7 @@ final class JwtService
         return $this->issue([
             'admin' => $admin,
             'support_agent' => $supportAgent,
+            'blog_author' => $blogAuthor,
             'customer_id' => $customerId,
             'uid' => $uid,
             'permissions' => array_values($permissions),
@@ -178,7 +181,7 @@ final class JwtService
     }
 
     /**
-     * @param array{admin:bool, support_agent:bool, customer_id:int|null, uid:int|null, permissions:list<string>, companies:list<array{id:int, permissions:list<string>}>} $extra
+     * @param array{admin:bool, support_agent:bool, blog_author:bool, customer_id:int|null, uid:int|null, permissions:list<string>, companies:list<array{id:int, permissions:list<string>}>} $extra
      * @return array{token: string, jti: string, expiresAt: int}
      */
     private function issue(array $extra, string $subject): array
