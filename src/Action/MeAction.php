@@ -50,6 +50,10 @@ final class MeAction
             'customerId' => $user->customerId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
             'mustChangePassword' => $user->mustChangePassword,
+            // Session expiry (Unix seconds) straight from the verified token's
+            // `exp` claim — lets the panels' inline gate bounce an expired
+            // session to /login before the panel paints (no stale-hint flash).
+            'expiresAt' => isset($claims['exp']) && is_int($claims['exp']) ? $claims['exp'] : null,
         ]);
     }
 

@@ -71,6 +71,26 @@ final class MeActionTest extends TestCase
         self::assertSame(401, $this->me(['uid' => 999])->getStatusCode());
     }
 
+    public function test_surfaces_session_expiry_from_the_exp_claim(): void
+    {
+        $this->users->seed(new AppUser(3, 'cust@example.com', 'Cust', false, 7, [], 'active', 'x'));
+
+        $body = $this->jsonBody($this->me(['uid' => 3, 'exp' => 1893456000]));
+
+        // The panels' inline gate reads this to bounce an expired session
+        // before the panel paints.
+        self::assertSame(1893456000, $body['expiresAt']);
+    }
+
+    public function test_expiry_is_null_when_the_claim_is_absent(): void
+    {
+        $this->users->seed(new AppUser(3, 'cust@example.com', 'Cust', false, 7, [], 'active', 'x'));
+
+        $body = $this->jsonBody($this->me(['uid' => 3]));
+
+        self::assertNull($body['expiresAt']);
+    }
+
     /** @param array<string,mixed> $claims */
     private function me(array $claims): ResponseInterface
     {

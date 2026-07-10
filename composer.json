@@ -3,7 +3,7 @@
   "description": "JWT auth micro-backend (admin + customer login) for TDS",
   "type": "project",
   "license": "proprietary",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "require": {
     "php": ">=8.1",
     "ext-openssl": "*",

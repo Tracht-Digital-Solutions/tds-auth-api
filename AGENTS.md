@@ -55,6 +55,10 @@ returned by `/me` + the user list.
 - `DELETE /logout` (alias `DELETE /admin/login`) — revoke session + clear
   cookie (works for any session).
 - `GET /me` — current principal (drives UI gating). Gated by `JwtAuthMiddleware`.
+  Includes `expiresAt` (Unix seconds, from the verified token's `exp` claim, or
+  `null` if absent) so the panels' inline gate can bounce an *expired* session to
+  `/login` before the panel paints instead of flashing it and redirecting only
+  after the first 401.
 - `PUT /password` (alias `PUT /customer/password`) — change own password.
   Revokes **all** the user's existing sessions (not just the caller's jti — a
   password change must terminate a lost/stolen device, which could otherwise
