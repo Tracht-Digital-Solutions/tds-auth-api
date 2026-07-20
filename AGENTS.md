@@ -4,6 +4,11 @@ PHP 8.3 + Slim 4 + firebase/php-jwt. Issues and verifies RS256
 JWTs. Other backends verify them via `/.well-known/jwks.json`
 without ever seeing the private key.
 
+> Status: **core dependency of BOTH architectures — never superseded.** The legacy
+> backends *and* the new `tds-core-panel-api` verify against this service's JWKS; the
+> panel host logs in and edits users (`/admin/users`, memberships) against it. See the
+> root `MIGRATION-STATUS.md`.
+
 ## Behind the gateway
 
 The public surface `api.tracht-digital.de/auth/*` is fronted by
