@@ -129,6 +129,12 @@ machine. After step (a), feel free to `rm` the file.
   working), and other services accept tokens until natural expiry.
 - `CookieFactory` builds `Domain=.tracht-digital.de` cookies so the
   same JWT works across `management.` and `app.` subdomains.
+- **Central login** — the login/password-change UI lives in `tds-auth`
+  (`auth.tracht-digital.de`); this API stays UI-less (JSON only). That site
+  POSTs `/login`, reads `/me`, PUTs `/password` cross-origin with credentials,
+  so `https://auth.tracht-digital.de` must be in `CORS_ALLOWED_ORIGINS`. Because
+  the session cookie is already `Domain=.tracht-digital.de`, a login there is
+  immediately valid on every sibling panel — no token hand-off.
 
 ## Tests
 
