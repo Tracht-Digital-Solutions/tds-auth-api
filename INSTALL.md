@@ -116,7 +116,7 @@ your own password.
 > Set `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` in the host
 > `services/auth/.env` **before** the first migrate so the public default never
 > exists. On production the auth migrations run automatically via the gateway on
-> the first request after deploy (`tds-api-gateway`), so set these first.
+> the first request after deploy (`tds-gateway-api`), so set these first.
 
 **First login → forced password change**
 1. `POST /login` `{"email","password"}` → token + `"mustChangePassword": true`.
@@ -191,7 +191,7 @@ two of them in parallel against it (the schemas overlap).
 ## 8. Production deployment
 
 In production this API does **not** run on its own — it ships inside the
-**`tds-api-gateway` bundle** as `services/auth/` and is served by the gateway in
+**`tds-gateway-api` bundle** as `services/auth/` and is served by the gateway in
 its default **in-process** mode (`GATEWAY_MODE=inprocess`): one PHP-FPM app for
 the whole API surface, **no per-service `php -S` process to start**. The full
 release recipe (Plesk Git checkout of the gateway's `release` branch, docroot on
@@ -206,11 +206,11 @@ deploy; pushes to `main` only build the (undeployed) `dev` bundle.
 
 ## Related repos
 
-- [tds-shared](https://github.com/Tracht-Digital-Solutions/tds-shared) — type definitions for login payloads
+- [tds-shared-pkg](https://github.com/Tracht-Digital-Solutions/tds-shared-pkg) — type definitions for login payloads
 - [tds-customer-api](https://github.com/Tracht-Digital-Solutions/tds-customer-api) — verifies JWTs against this JWKS, calls back via `POST /admin/customer-credentials`
 - [tds-content-api](https://github.com/Tracht-Digital-Solutions/tds-content-api) — verifies admin write JWTs against this API's JWKS
 - [tds-admin](https://github.com/Tracht-Digital-Solutions/tds-admin) — gets its admin session cookie from this API's `/login`
-- [tds-customer](https://github.com/Tracht-Digital-Solutions/tds-customer) — gets the customer cookie from this API
+- [tds-customer-legacy-frontend](https://github.com/Tracht-Digital-Solutions/tds-customer-legacy-frontend) — gets the customer cookie from this API
 
 ## Troubleshooting
 

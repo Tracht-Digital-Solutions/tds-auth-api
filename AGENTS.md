@@ -12,7 +12,7 @@ without ever seeing the private key.
 ## Behind the gateway
 
 The public surface `api.tracht-digital.de/auth/*` is fronted by
-`tds-api-gateway`, a Slim reverse proxy that strips the `/auth` prefix and
+`tds-gateway-api`, a Slim reverse proxy that strips the `/auth` prefix and
 forwards to this service (so `…/auth/admin/login` → this app's
 `/admin/login`). The path contract is unchanged — routes here still mount at
 root. The build model is dev/release (see README): a push to `main` auto-assembles the **`dev`** bundle (developer artifact, not deployed); the manual **Release** workflow (`release.yml`) assembles the **`release`** bundle, pings the deploy webhook, and fires a `repository_dispatch(api-pushed)` to the gateway (needs `GATEWAY_DISPATCH_TOKEN`) so it reassembles its `dev` bundle.
@@ -23,7 +23,7 @@ Unified user model: one `app_user` row = one login spanning both panels.
 `is_admin` grants admin-panel access; portal access is a set of **company
 memberships** in `app_user_customer` — a login can belong to **several**
 companies, each with its own `permissions` JSON array (catalog hand-duplicated
-in `Domain\Permissions` from tds-shared's `PORTAL_PERMISSIONS` — includes
+in `Domain\Permissions` from tds-shared-pkg's `PORTAL_PERMISSIONS` — includes
 `tickets:read`/`tickets:write`). `app_user.customer_id` + `permissions` are the
 denormalised **primary** membership (the default active company), kept in sync
 with the first membership row by `PdoAppUserRepository::setMemberships`. Multiple
@@ -129,7 +129,7 @@ machine. After step (a), feel free to `rm` the file.
   working), and other services accept tokens until natural expiry.
 - `CookieFactory` builds `Domain=.tracht-digital.de` cookies so the
   same JWT works across `management.` and `app.` subdomains.
-- **Central login** — the login/password-change UI lives in `tds-auth`
+- **Central login** — the login/password-change UI lives in `tds-auth-frontend`
   (`auth.tracht-digital.de`); this API stays UI-less (JSON only). That site
   POSTs `/login`, reads `/me`, PUTs `/password` cross-origin with credentials,
   so `https://auth.tracht-digital.de` must be in `CORS_ALLOWED_ORIGINS`. Because

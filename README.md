@@ -58,7 +58,7 @@ composer test            # run the PHPUnit suite (see INSTALL.md §7)
 ```
 
 **On production, migrations apply automatically.** This service is served
-in-process by the `tds-api-gateway` bundle, which runs each service's pending
+in-process by the `tds-gateway-api` bundle, which runs each service's pending
 Phinx migrations on the first request after a deploy (in-process, no `proc_open`;
 see the gateway's `AGENTS.md` → *Auto-migration*). `/healthz` reports the schema
 state in its `db` field — `ok` (migrated), `no-schema` (reachable but tables
