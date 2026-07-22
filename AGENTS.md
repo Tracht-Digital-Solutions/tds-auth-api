@@ -5,8 +5,8 @@ JWTs. Other backends verify them via `/.well-known/jwks.json`
 without ever seeing the private key.
 
 > Status: **core dependency of BOTH architectures — never superseded.** The legacy
-> backends *and* the new `tds-core-panel-api` verify against this service's JWKS; the
-> panel host logs in and edits users (`/admin/users`, memberships) against it. See the
+> backends *and* the new `tds-core-frontend-api` verify against this service's JWKS; the
+> frontend host logs in and edits users (`/admin/users`, memberships) against it. See the
 > root `MIGRATION-STATUS.md`.
 
 ## Behind the gateway
@@ -19,8 +19,8 @@ root. The build model is dev/release (see README): a push to `main` auto-assembl
 
 ## Endpoints
 
-Unified user model: one `app_user` row = one login spanning both panels.
-`is_admin` grants admin-panel access; portal access is a set of **company
+Unified user model: one `app_user` row = one login spanning both frontends.
+`is_admin` grants admin-frontend access; portal access is a set of **company
 memberships** in `app_user_customer` — a login can belong to **several**
 companies, each with its own `permissions` JSON array (catalog hand-duplicated
 in `Domain\Permissions` from tds-shared-pkg's `PORTAL_PERMISSIONS` — includes
@@ -53,16 +53,16 @@ keeps the URL) and `bio`. Both are set via user CRUD (`avatarUrl` / `bio`) and
 returned by `/me` + the user list.
 
 - `POST /login` (alias `POST /customer/login`) — email + password → JWT for
-  both panels. Looks up `app_user`, verifies with `password_verify` (dummy
+  both frontends. Looks up `app_user`, verifies with `password_verify` (dummy
   verify on miss for constant-time behavior), rejects `disabled` accounts with
   403. Response includes `isAdmin` / `customerId` / `permissions`; the admin
-  panel checks `isAdmin`.
+  frontend checks `isAdmin`.
 - `DELETE /logout` (alias `DELETE /admin/login`) — revoke session + clear
   cookie (works for any session).
 - `GET /me` — current principal (drives UI gating). Gated by `JwtAuthMiddleware`.
   Includes `expiresAt` (Unix seconds, from the verified token's `exp` claim, or
-  `null` if absent) so the panels' inline gate can bounce an *expired* session to
-  `/login` before the panel paints instead of flashing it and redirecting only
+  `null` if absent) so the frontends' inline gate can bounce an *expired* session to
+  `/login` before the frontend paints instead of flashing it and redirecting only
   after the first 401.
 - `PUT /password` (alias `PUT /customer/password`) — change own password.
   Revokes **all** the user's existing sessions (not just the caller's jti — a
@@ -86,7 +86,7 @@ returned by `/me` + the user list.
 
 Bootstrap the first admin (the shared-token paste login is gone). Two paths,
 both flag the account `must_change_password` so the first login is forced
-through the change-password screen before the panel opens:
+through the change-password screen before the frontend opens:
 
 - **Seed migration** (`20260701000002_seed_bootstrap_admin`): on the first
   `composer migrate`, if no admin exists yet, seeds ONE admin from
@@ -134,7 +134,7 @@ machine. After step (a), feel free to `rm` the file.
   POSTs `/login`, reads `/me`, PUTs `/password` cross-origin with credentials,
   so `https://auth.tracht-digital.de` must be in `CORS_ALLOWED_ORIGINS`. Because
   the session cookie is already `Domain=.tracht-digital.de`, a login there is
-  immediately valid on every sibling panel — no token hand-off.
+  immediately valid on every sibling frontend — no token hand-off.
 
 ## Tests
 
@@ -177,7 +177,7 @@ See INSTALL.md §7 for the throwaway-Docker test DB recipe.
   AFTER routing/error to be outermost. Added earlier, the routing
   middleware 405s every OPTIONS preflight (no OPTIONS routes exist) before
   CORS can short-circuit it, and browsers block every cross-origin
-  JSON/Authorization request, including the panel logins. Bit all four API
+  JSON/Authorization request, including the frontend logins. Bit all four API
   repos at once via copy-paste; `tests/PreflightTest.php` (an OPTIONS
   request through the REAL `Bootstrap::createApp()` app) is the regression
   guard — unit-testing the middleware alone cannot catch the ordering.

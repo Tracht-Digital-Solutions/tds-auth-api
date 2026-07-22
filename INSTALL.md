@@ -121,7 +121,7 @@ your own password.
 **First login → forced password change**
 1. `POST /login` `{"email","password"}` → token + `"mustChangePassword": true`.
 2. `PUT /password` `{"old":"…","new":"…"}` (new ≥ 12 chars, must differ) — sets a
-   real password and clears the forced-change flag. The admin panel shows this as
+   real password and clears the forced-change flag. The admin frontend shows this as
    the automatic "change your password" screen on first login.
 
 **More admins / recovery:** `composer create-admin -- you@example.com [password]`

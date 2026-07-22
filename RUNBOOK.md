@@ -16,7 +16,7 @@ and the row is flagged `must_change_password`.
   `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` in the host
   `services/auth/.env` **before the first migrate** so the public default is
   never created.
-- **Secure it on first use:** log into the admin panel (or `POST /login` →
+- **Secure it on first use:** log into the admin frontend (or `POST /login` →
   `PUT /password {old,new}`, new ≥ 12 chars) to set a real password — this clears
   the `must_change_password` flag. Then delete `gateway/public/install.php`.
 - **If the default already reached prod** (migrated with defaults / used for a
