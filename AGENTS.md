@@ -131,10 +131,15 @@ machine. After step (a), feel free to `rm` the file.
   same JWT works across `management.` and `app.` subdomains.
 - **Central login** — the login/password-change UI lives in `tds-auth-frontend`
   (`auth.tracht-digital.de`); this API stays UI-less (JSON only). That site
-  POSTs `/login`, reads `/me`, PUTs `/password` cross-origin with credentials,
-  so `https://auth.tracht-digital.de` must be in `CORS_ALLOWED_ORIGINS`. Because
-  the session cookie is already `Domain=.tracht-digital.de`, a login there is
-  immediately valid on every sibling frontend — no token hand-off.
+  POSTs `/login`, reads `/me`, PUTs `/password` cross-origin with credentials.
+  The first-party `*.tracht-digital.de` surfaces (incl. `auth.`) are a **hardcoded
+  baseline in `corsOrigins()`**, merged with `CORS_ALLOWED_ORIGINS` (which only
+  ADDS, e.g. `http://localhost:4321`). The baseline means the login works even if
+  the host `services/auth/.env` omits the var — a missing var used to leave zero
+  allowed origins, so the browser blocked the login preflight and the form showed
+  "Netzwerkfehler" (mirrors `tds-core-frontend-api`). Because the session cookie is
+  already `Domain=.tracht-digital.de`, a login there is immediately valid on every
+  sibling frontend — no token hand-off.
 
 ## Tests
 

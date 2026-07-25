@@ -171,13 +171,33 @@ final class Bootstrap
         return (string) $v;
     }
 
-    /** @return string[] */
+    /**
+     * Allowed CORS origins = a hardcoded baseline of the first-party
+     * *.tracht-digital.de production surfaces, merged with any extra origins from
+     * CORS_ALLOWED_ORIGINS (deduped). The baseline means the central login site
+     * and every sibling frontend can POST /login + read /me (both with
+     * credentials) even if the host `services/auth/.env` is unset or stale — a
+     * missing var used to leave zero allowed origins, so the browser blocked the
+     * login preflight and the form reported "Netzwerkfehler". The env only ADDS
+     * (e.g. http://localhost:4321 for dev). Mirrors tds-core-frontend-api.
+     *
+     * @return string[]
+     */
     private static function corsOrigins(): array
     {
         // Use the safe env() helper — NOT the `?? getenv() ?: ''` one-liner the
         // comment above warns against (the `??`-binds-tighter-than-`?:` trap).
+        $baseline = [
+            'https://tracht-digital.de',
+            'https://blog.tracht-digital.de',
+            'https://auth.tracht-digital.de',
+            'https://management.tracht-digital.de',
+            'https://app.tracht-digital.de',
+            'https://tools.tracht-digital.de',
+        ];
         $raw = self::env('CORS_ALLOWED_ORIGINS', '');
-        return array_values(array_filter(array_map('trim', explode(',', $raw))));
+        $extra = array_filter(array_map('trim', explode(',', $raw)));
+        return array_values(array_unique([...$baseline, ...$extra]));
     }
 
     private static function loadPrivateKey(string $rootDir): string
