@@ -1,0 +1,58 @@
+<?php
+declare(strict_types=1);
+
+namespace Tds\AuthApi\Service;
+
+use Tds\AuthApi\Domain\AppUser;
+
+interface AppUserRepository
+{
+    public function findByEmail(string $email): ?AppUser;
+
+    public function findById(int $id): ?AppUser;
+
+    /**
+     * List users, newest first. Optionally filter to one company.
+     *
+     * @return list<AppUser>
+     */
+    public function list(?int $customerId = null): array;
+
+    /**
+     * @param list<string> $permissions
+     * @return int the new user id
+     */
+    public function create(
+        string $email,
+        string $passwordHash,
+        ?string $name,
+        bool $isAdmin,
+        ?int $customerId,
+        array $permissions,
+        string $status = 'active',
+    ): int;
+
+    /**
+     * Partial update. Recognised keys: email, name, is_admin, is_support_agent,
+     * is_blog_author, avatar_url, bio, customer_id, permissions (list<string>),
+     * status, must_change_password. Absent keys are left unchanged.
+     *
+     * @param array<string,mixed> $fields
+     */
+    public function update(int $id, array $fields): void;
+
+    public function updatePassword(int $id, string $passwordHash): void;
+
+    public function delete(int $id): bool;
+
+    public function emailExists(string $email, ?int $exceptId = null): bool;
+
+    /**
+     * Replace a user's full set of company memberships. Also syncs the legacy
+     * `app_user.customer_id` / `permissions` columns to the primary (first)
+     * membership (or NULL / [] when the list is empty).
+     *
+     * @param list<array{customerId:int, permissions:list<string>}> $memberships
+     */
+    public function setMemberships(int $userId, array $memberships): void;
+}
