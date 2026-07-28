@@ -160,7 +160,31 @@ PHPUnit 10. `composer test` runs the suite.
   they skip. The `app_user` migration + `PdoAppUserRepository` SQL are only
   exercised end-to-end against a real DB (`composer migrate` + manual run).
 
+- **MembershipPayload** — the parser behind the company assignment in
+  `POST`/`PATCH /admin/users/{id}`. It decides which companies a portal login
+  belongs to and which permissions it holds in each, from untrusted editor
+  input, so it is asserted to DROP nonsense rather than store it: a
+  non-positive `customerId`, a membership entry that is not an object, an
+  unknown permission key (which would otherwise ride the JWT and be compared
+  verbatim by every consumer), and permissions sent without a company.
+  The subtle half is `present()`, which lets an update tell **"the request said
+  nothing about memberships"** (leave them alone) from **"the request
+  explicitly cleared them"** (`memberships: []` → revoke every company).
+  Collapsing those two either strands a user with access an admin just removed,
+  or wipes the memberships of every user edited for an unrelated reason. Both
+  directions are pinned. Verified by mutation: 18 breakages, 18 caught.
+
 See INSTALL.md §7 for the throwaway-Docker test DB recipe.
+
+> **Windows gotcha.** The WinGet PHP build ships no active `openssl.cnf`, so
+> `openssl_pkey_new` in `tests/Support/Keys` fails with
+> `error:80000003:system library::No such process` and **53 tests error out** —
+> nothing to do with the code. Point PHP at the bundled config for the run:
+>
+> ```bash
+> OPENSSL_CONF="$(ls -d ~/AppData/Local/Microsoft/WinGet/Packages/PHP.PHP.8.3*/extras/ssl/openssl.cnf)" \
+>   vendor/bin/phpunit
+> ```
 
 ## Don't
 
