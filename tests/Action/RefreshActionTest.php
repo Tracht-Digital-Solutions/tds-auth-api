@@ -10,6 +10,10 @@ use Slim\Psr7\Response;
 use Tds\AuthApi\Action\RefreshAction;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
+use Tds\AuthApi\Service\RememberCookieFactory;
+use Tds\AuthApi\Service\RememberTokenService;
+use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
+use Tds\AuthApi\Tests\Support\FakeRememberTokenRepository;
 use Tds\AuthApi\Tests\Support\FakeSessionRepository;
 use Tds\AuthApi\Tests\Support\Keys;
 
@@ -18,6 +22,10 @@ final class RefreshActionTest extends TestCase
     private JwtService $jwt;
     private FakeSessionRepository $sessions;
     private CookieFactory $cookies;
+    private FakeAppUserRepository $users;
+    private FakeRememberTokenRepository $rememberRepo;
+    private RememberTokenService $remember;
+    private RememberCookieFactory $rememberCookies;
 
     protected function setUp(): void
     {
@@ -32,6 +40,10 @@ final class RefreshActionTest extends TestCase
         );
         $this->sessions = new FakeSessionRepository();
         $this->cookies = new CookieFactory('tds_session', '.local', secure: false);
+        $this->users = new FakeAppUserRepository();
+        $this->rememberRepo = new FakeRememberTokenRepository();
+        $this->remember = new RememberTokenService($this->rememberRepo, 2592000);
+        $this->rememberCookies = new RememberCookieFactory(new CookieFactory('tds_remember', '.local', secure: false));
     }
 
     public function test_no_token_returns_401(): void
@@ -108,7 +120,7 @@ final class RefreshActionTest extends TestCase
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/refresh')
             ->withCookieParams(['tds_session' => $issued['token']]);
-        $response = (new RefreshAction($this->jwt, $this->sessions, $this->cookies))($request, new Response());
+        $response = (new RefreshAction($this->jwt, $this->sessions, $this->cookies, $this->users, $this->remember, $this->rememberCookies))($request, new Response());
 
         self::assertSame(200, $response->getStatusCode());
     }
@@ -119,7 +131,7 @@ final class RefreshActionTest extends TestCase
         if ($bearer !== null) {
             $request = $request->withHeader('Authorization', 'Bearer ' . $bearer);
         }
-        return (new RefreshAction($this->jwt, $this->sessions, $this->cookies))($request, new Response());
+        return (new RefreshAction($this->jwt, $this->sessions, $this->cookies, $this->users, $this->remember, $this->rememberCookies))($request, new Response());
     }
 
     /** @return array<string,mixed> */

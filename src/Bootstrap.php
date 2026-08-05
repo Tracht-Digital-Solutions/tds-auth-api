@@ -24,17 +24,31 @@ use Tds\AuthApi\Action\LoginAction;
 use Tds\AuthApi\Action\MeAction;
 use Tds\AuthApi\Action\RefreshAction;
 use Tds\AuthApi\Infrastructure\Database;
+use Tds\AuthApi\Action\Passkey\DeleteAction as DeletePasskeyAction;
+use Tds\AuthApi\Action\Passkey\ListAction as ListPasskeysAction;
+use Tds\AuthApi\Action\Passkey\LoginOptionsAction as PasskeyLoginOptionsAction;
+use Tds\AuthApi\Action\Passkey\PasskeyLoginAction;
+use Tds\AuthApi\Action\Passkey\RegisterAction as RegisterPasskeyAction;
+use Tds\AuthApi\Action\Passkey\RegisterOptionsAction as PasskeyRegisterOptionsAction;
 use Tds\AuthApi\Infrastructure\PdoAppUserRepository;
+use Tds\AuthApi\Infrastructure\PdoPasskeyRepository;
+use Tds\AuthApi\Infrastructure\PdoRememberTokenRepository;
 use Tds\AuthApi\Infrastructure\PdoSessionRepository;
 use Tds\AuthApi\Middleware\AdminAuthMiddleware;
 use Tds\AuthApi\Middleware\CorsMiddleware;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Service\AppUserRepository;
+use Tds\AuthApi\Service\ChallengeStore;
 use Tds\AuthApi\Service\CookieFactory;
+use Tds\AuthApi\Service\PasskeyRepository;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\PdoRateLimiter;
 use Tds\AuthApi\Service\RateLimiter;
+use Tds\AuthApi\Service\RememberCookieFactory;
+use Tds\AuthApi\Service\RememberTokenRepository;
+use Tds\AuthApi\Service\RememberTokenService;
 use Tds\AuthApi\Service\SessionRepository;
+use Tds\AuthApi\Service\WebAuthnFactory;
 
 final class Bootstrap
 {
@@ -85,6 +99,46 @@ final class Bootstrap
             name: self::env('COOKIE_NAME', 'tds_session'),
             domain: self::env('COOKIE_DOMAIN', '.tracht-digital.de'),
             secure: self::env('APP_ENV') === 'production',
+        ));
+
+        // "Angemeldet bleiben". Same attributes as the session cookie, different
+        // name and lifetime — see RememberTokenService for why this is a
+        // separate credential rather than a longer-lived JWT.
+        $container->set(RememberCookieFactory::class, fn () => new RememberCookieFactory(new CookieFactory(
+            name: self::env('REMEMBER_COOKIE_NAME', 'tds_remember'),
+            domain: self::env('COOKIE_DOMAIN', '.tracht-digital.de'),
+            secure: self::env('APP_ENV') === 'production',
+        )));
+
+        $container->set(RememberTokenRepository::class, fn (Container $c) => new PdoRememberTokenRepository($c->get(PDO::class)));
+
+        $container->set(PasskeyRepository::class, fn (Container $c) => new PdoPasskeyRepository($c->get(PDO::class)));
+
+        // Passkeys. The RP ID is the REGISTRABLE DOMAIN, not the login host, so
+        // one passkey works on auth./management./app./tools. — see WebAuthnFactory.
+        $container->set(WebAuthnFactory::class, fn () => new WebAuthnFactory(
+            rpName: self::env('WEBAUTHN_RP_NAME', 'Tracht Digital Solutions'),
+            rpId: self::env('WEBAUTHN_RP_ID', 'tracht-digital.de'),
+        ));
+
+        // The WebAuthn challenge lives in a signed cookie because this API is
+        // stateless (no PHP session). Its secret falls back to a hash of the JWT
+        // private key so no new required config appears on existing hosts — the
+        // challenge is not a secret, it only must not be attacker-chosen.
+        $container->set(ChallengeStore::class, fn () => new ChallengeStore(
+            secret: self::env('WEBAUTHN_CHALLENGE_SECRET', '') !== ''
+                ? self::env('WEBAUTHN_CHALLENGE_SECRET')
+                : hash('sha256', self::loadPrivateKey($rootDir)),
+            cookieName: self::env('WEBAUTHN_COOKIE_NAME', 'tds_wa_challenge'),
+            domain: self::env('COOKIE_DOMAIN', '.tracht-digital.de'),
+            secure: self::env('APP_ENV') === 'production',
+        ));
+
+        $container->set(RememberTokenService::class, fn (Container $c) => new RememberTokenService(
+            repository: $c->get(RememberTokenRepository::class),
+            // The checkbox says 30 days; JWT_REFRESH_TTL_SECONDS already carried
+            // that value and was otherwise unused.
+            ttlSeconds: (int) self::env('REMEMBER_TTL_SECONDS', self::env('JWT_REFRESH_TTL_SECONDS', (string) (60 * 60 * 24 * 30))),
         ));
 
         AppFactory::setContainer($container);
@@ -143,6 +197,17 @@ final class Bootstrap
 
         // Server-to-server onboarding (service token).
         $app->post('/admin/customer-credentials', CreateCustomerCredentialAction::class)->add($service);
+
+        // Passkeys (WebAuthn). The two login routes are unauthenticated by
+        // definition; the rest manage the signed-in user's own credentials.
+        // Registration options + finish are session-gated: you add a passkey to
+        // the account you are already signed into.
+        $app->post('/passkeys/login/options', PasskeyLoginOptionsAction::class);
+        $app->post('/passkeys/login', PasskeyLoginAction::class);
+        $app->get('/passkeys', ListPasskeysAction::class)->add($sessionAuth);
+        $app->post('/passkeys/options', PasskeyRegisterOptionsAction::class)->add($sessionAuth);
+        $app->post('/passkeys', RegisterPasskeyAction::class)->add($sessionAuth);
+        $app->delete('/passkeys/{id:[0-9]+}', DeletePasskeyAction::class)->add($sessionAuth);
 
         $app->post('/refresh', RefreshAction::class);
         $app->get('/.well-known/jwks.json', JwksAction::class);

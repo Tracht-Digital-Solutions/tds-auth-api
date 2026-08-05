@@ -8,6 +8,8 @@ use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
+use Tds\AuthApi\Service\RememberCookieFactory;
+use Tds\AuthApi\Service\RememberTokenService;
 use Tds\AuthApi\Service\SessionRepository;
 
 /**
@@ -23,6 +25,8 @@ final class LogoutAction
         private readonly JwtService $jwt,
         private readonly SessionRepository $sessions,
         private readonly CookieFactory $cookies,
+        private readonly RememberTokenService $remember,
+        private readonly RememberCookieFactory $rememberCookies,
     ) {
     }
 
@@ -40,9 +44,18 @@ final class LogoutAction
             }
         }
 
+        // Logging out must also end "angemeldet bleiben". Without this the next
+        // request would silently refresh a brand-new session from the remember
+        // cookie and the user would appear never to have logged out.
+        $rememberCookie = $request->getCookieParams()[$this->rememberCookies->name()] ?? null;
+        if (is_string($rememberCookie) && $rememberCookie !== '') {
+            $this->remember->forget($rememberCookie);
+        }
+
         return $response
             ->withStatus(204)
-            ->withHeader('Set-Cookie', $this->cookies->expire());
+            ->withHeader('Set-Cookie', $this->cookies->expire())
+            ->withAddedHeader('Set-Cookie', $this->rememberCookies->expire());
     }
 
     private function extractToken(ServerRequestInterface $request): ?string

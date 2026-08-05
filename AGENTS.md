@@ -119,6 +119,75 @@ is: private key only ever exists in (a) your password manager, (b)
 the production host `.env`, (c) optionally `keys/private.pem` on the dev
 machine. After step (a), feel free to `rm` the file.
 
+## "Angemeldet bleiben" (30 Tage) — a refresh, not a longer token
+
+`POST /login` accepts `{"remember": true}` and issues a SECOND httpOnly cookie
+(`tds_remember`, `Domain=.tracht-digital.de`) backed by `app_user_remember`.
+
+**Why not simply lengthen the JWT.** Every other service verifies the session
+token against the JWKS and never talks to this database, so a JWT's lifetime is
+also its **non-revocability** window: a 30-day JWT means a disabled account keeps
+working for 30 days. The JWT therefore stays at an hour, and staying signed in
+becomes an exchange at `POST /refresh`, which re-reads the user and mints a token
+from their *current* flags and memberships.
+
+Shape (`Service\RememberTokenService`): the cookie is `selector:validator`. The
+selector is what the row is found by, so the lookup never compares a secret; only
+a SHA-256 of the validator is stored, compared with `hash_equals`. **The pair
+rotates on every use** — a copied cookie works at most once before the real
+browser's next refresh invalidates it, so theft surfaces as an unexpected logout
+instead of 30 days of silent access. A wrong validator against a *real* selector
+deletes the row outright.
+
+Four ways a remembered login ends, and only one of them is a revocation:
+
+| Event | Mechanism |
+|---|---|
+| Logout | `LogoutAction` forgets the presented cookie + expires it |
+| Own password change | `ChangePasswordAction` forgets **all** of the user's tokens (revoking sessions alone would be theatre — the untrusted device still holds a 30-day cookie) |
+| Disabled / deleted account, admin password reset | Caught in `RefreshAction`, which re-reads the user each time and refuses on `!isActive()` or `mustChangePassword` |
+| Natural expiry | `expires_at` |
+
+**The panels must call `/refresh`** or none of this is reachable: the host's
+pre-paint gate and `frontendFetch` try it on a `/me` 401 before treating the
+session as dead (`tds-core-frontend-pkg`).
+
+## Passkeys (WebAuthn)
+
+`lbuchs/webauthn` — dependency-free apart from ext-openssl, which fits the
+platform's lean-dependency convention. Six routes: `POST /passkeys/login/options`
++ `POST /passkeys/login` (unauthenticated by definition), and `GET /passkeys`,
+`POST /passkeys/options`, `POST /passkeys`, `DELETE /passkeys/{id}` behind the
+session gate.
+
+Three decisions worth not re-litigating:
+
+- **The RP ID is the registrable domain** (`tracht-digital.de`), not the login
+  host. An origin satisfies an RP ID when the RP ID is a registrable-domain
+  suffix of it, so one passkey covers `auth.` / `management.` / `app.` / `tools.`.
+  Registering under `auth.tracht-digital.de` would silently produce passkeys that
+  work only there. Override with `WEBAUTHN_RP_ID`.
+- **Discoverable (resident) credentials only, and no `allowCredentials` at
+  login.** Sign-in carries no email — the authenticator names the account. That
+  removes the account-enumeration surface an email-keyed `allowCredentials` list
+  would create, and it is what makes the flow typing-free. Registration therefore
+  passes `requireResidentKey: true`; a non-discoverable credential would register
+  fine and then be unusable to log in with.
+- **The challenge lives in a signed cookie** (`Service\ChallengeStore`), because
+  this API keeps no session. The challenge is not a secret; the HMAC exists so a
+  client cannot *choose* one it already holds a signature for. Single-use — every
+  terminal path expires it.
+
+`sign_count` is stored so a *decreasing* counter can be rejected (WebAuthn's only
+clone signal). Many modern authenticators always report 0, so zero is normal and
+must not be treated as an attack — the comparison only happens when both sides
+are non-zero. Attestation is `none`: TDS does not restrict authenticators, and
+asking for attestation would collect device identifiers to no purpose.
+
+Passkey login is otherwise the ordinary login path — same JWT, same session
+record, same cookies, same optional "angemeldet bleiben". A passkey replaces the
+password, not the session model.
+
 ## Mental model
 
 - `JwtService` issues + verifies with the loaded keys.

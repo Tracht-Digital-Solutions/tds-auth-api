@@ -11,7 +11,10 @@ use Tds\AuthApi\Action\ChangePasswordAction;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
+use Tds\AuthApi\Service\RememberCookieFactory;
+use Tds\AuthApi\Service\RememberTokenService;
 use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
+use Tds\AuthApi\Tests\Support\FakeRememberTokenRepository;
 use Tds\AuthApi\Tests\Support\FakeSessionRepository;
 use Tds\AuthApi\Tests\Support\Keys;
 
@@ -21,6 +24,9 @@ final class ChangePasswordActionTest extends TestCase
     private JwtService $jwt;
     private FakeSessionRepository $sessions;
     private CookieFactory $cookies;
+    private FakeRememberTokenRepository $rememberRepo;
+    private RememberTokenService $remember;
+    private RememberCookieFactory $rememberCookies;
 
     protected function setUp(): void
     {
@@ -36,6 +42,9 @@ final class ChangePasswordActionTest extends TestCase
         );
         $this->sessions = new FakeSessionRepository();
         $this->cookies = new CookieFactory('tds_session', '.local', secure: false);
+        $this->rememberRepo = new FakeRememberTokenRepository();
+        $this->remember = new RememberTokenService($this->rememberRepo, 2592000);
+        $this->rememberCookies = new RememberCookieFactory(new CookieFactory('tds_remember', '.local', secure: false));
     }
 
     private function seed(string $password): int
@@ -124,7 +133,7 @@ final class ChangePasswordActionTest extends TestCase
             ->createServerRequest('PUT', '/password')
             ->withAttribute(JwtAuthMiddleware::ATTR_CLAIMS, ['uid' => $uid, 'jti' => $jti])
             ->withParsedBody($body);
-        $action = new ChangePasswordAction($this->users, $this->jwt, $this->sessions, $this->cookies);
+        $action = new ChangePasswordAction($this->users, $this->jwt, $this->sessions, $this->cookies, $this->remember, $this->rememberCookies);
         return $action($request, new Response());
     }
 }

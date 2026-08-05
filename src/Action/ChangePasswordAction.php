@@ -10,6 +10,8 @@ use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
+use Tds\AuthApi\Service\RememberCookieFactory;
+use Tds\AuthApi\Service\RememberTokenService;
 use Tds\AuthApi\Service\SessionRepository;
 
 /**
@@ -32,6 +34,8 @@ final class ChangePasswordAction
         private readonly JwtService $jwt,
         private readonly SessionRepository $sessions,
         private readonly CookieFactory $cookies,
+        private readonly RememberTokenService $remember,
+        private readonly RememberCookieFactory $rememberCookies,
     ) {
     }
 
@@ -90,13 +94,21 @@ final class ChangePasswordAction
         // refreshing for the 30-day refresh TTL. Matches ResetPasswordAction /
         // UpdateUserAction, which also revokeAllForUser.
         $this->sessions->revokeAllForUser($user->id);
+        // …and every "angemeldet bleiben" token with them. Revoking sessions
+        // alone would be theatre: the untrusted device still holds a 30-day
+        // remember cookie and would mint itself a brand-new session on its very
+        // next request. The current device is signed out of the long-lived
+        // option too and simply opts in again at the next login.
+        $this->remember->forgetAllForUser($user->id);
         $issued = $this->jwt->issueForUser($user);
         $this->sessions->record($issued['jti'], $user->customerId, $user->isAdmin, $issued['expiresAt'], $user->id);
 
         return $this->json($response, 200, [
             'token' => $issued['token'],
             'expiresAt' => $issued['expiresAt'],
-        ])->withHeader('Set-Cookie', $this->cookies->set($issued['token'], $this->jwt->ttl()));
+        ])
+            ->withHeader('Set-Cookie', $this->cookies->set($issued['token'], $this->jwt->ttl()))
+            ->withAddedHeader('Set-Cookie', $this->rememberCookies->expire());
     }
 
     /** @param array<string,mixed> $payload */

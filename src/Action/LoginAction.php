@@ -10,6 +10,8 @@ use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\RateLimiter;
+use Tds\AuthApi\Service\RememberCookieFactory;
+use Tds\AuthApi\Service\RememberTokenService;
 use Tds\AuthApi\Service\SessionRepository;
 
 /**
@@ -36,6 +38,8 @@ final class LoginAction
         private readonly SessionRepository $sessions,
         private readonly CookieFactory $cookies,
         private readonly RateLimiter $rateLimiter,
+        private readonly RememberTokenService $remember,
+        private readonly RememberCookieFactory $rememberCookies,
     ) {
         $hash = password_hash('not-a-real-password', PASSWORD_ARGON2ID);
         $this->dummyHash = $hash !== false ? $hash : '';
@@ -55,6 +59,9 @@ final class LoginAction
         $body = $request->getParsedBody();
         $email = is_array($body) ? strtolower(trim((string) ($body['email'] ?? ''))) : '';
         $password = is_array($body) ? (string) ($body['password'] ?? '') : '';
+        // "Angemeldet bleiben" — opt-in only, and strictly a boolean true. An
+        // absent field must never be read as consent to a 30-day credential.
+        $remember = is_array($body) && ($body['remember'] ?? false) === true;
 
         if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || $password === '') {
             return $this->json($response, 400, ['error' => 'Email and password required']);
@@ -94,8 +101,21 @@ final class LoginAction
             'customerId' => $user->customerId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
             'mustChangePassword' => $user->mustChangePassword,
+            'remembered' => $remember && !$user->mustChangePassword,
         ]);
-        return $response->withHeader('Set-Cookie', $this->cookies->set($issued['token'], $this->jwt->ttl()));
+        $response = $response->withHeader('Set-Cookie', $this->cookies->set($issued['token'], $this->jwt->ttl()));
+
+        // A forced password change is not a completed login — issuing a 30-day
+        // credential before the user has set a password of their own would keep
+        // the temporary one alive for a month.
+        if ($remember && !$user->mustChangePassword) {
+            $cookie = $this->remember->issue($user->id, $request->getHeaderLine('User-Agent') ?: null);
+            $response = $response->withAddedHeader(
+                'Set-Cookie',
+                $this->rememberCookies->set($cookie, $this->remember->ttl()),
+            );
+        }
+        return $response;
     }
 
     private function clientIp(ServerRequestInterface $request): string

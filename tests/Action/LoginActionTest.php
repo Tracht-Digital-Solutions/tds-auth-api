@@ -10,7 +10,10 @@ use Slim\Psr7\Response;
 use Tds\AuthApi\Action\LoginAction;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
+use Tds\AuthApi\Service\RememberCookieFactory;
+use Tds\AuthApi\Service\RememberTokenService;
 use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
+use Tds\AuthApi\Tests\Support\FakeRememberTokenRepository;
 use Tds\AuthApi\Tests\Support\FakeRateLimiter;
 use Tds\AuthApi\Tests\Support\FakeSessionRepository;
 use Tds\AuthApi\Tests\Support\Keys;
@@ -21,6 +24,9 @@ final class LoginActionTest extends TestCase
     private JwtService $jwt;
     private FakeSessionRepository $sessions;
     private CookieFactory $cookies;
+    private FakeRememberTokenRepository $rememberRepo;
+    private RememberTokenService $remember;
+    private RememberCookieFactory $rememberCookies;
     private FakeRateLimiter $rateLimiter;
 
     protected function setUp(): void
@@ -37,6 +43,9 @@ final class LoginActionTest extends TestCase
         );
         $this->sessions = new FakeSessionRepository();
         $this->cookies = new CookieFactory('tds_session', '.local', secure: false);
+        $this->rememberRepo = new FakeRememberTokenRepository();
+        $this->remember = new RememberTokenService($this->rememberRepo, 2592000);
+        $this->rememberCookies = new RememberCookieFactory(new CookieFactory('tds_remember', '.local', secure: false));
         $this->rateLimiter = new FakeRateLimiter();
     }
 
@@ -154,7 +163,7 @@ final class LoginActionTest extends TestCase
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/login')
             ->withParsedBody($payload);
-        $action = new LoginAction($this->users, $this->jwt, $this->sessions, $this->cookies, $this->rateLimiter);
+        $action = new LoginAction($this->users, $this->jwt, $this->sessions, $this->cookies, $this->rateLimiter, $this->remember, $this->rememberCookies);
         return $action($request, new Response());
     }
 
