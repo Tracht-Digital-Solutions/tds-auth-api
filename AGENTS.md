@@ -76,6 +76,14 @@ returned by `/me` + the user list.
   permissions / status / customer_id) revoke the user's sessions so the change
   lands on next login.
 - `GET /admin/sessions`, `DELETE /admin/sessions/{jti}` — same admin-JWT gate.
+  **`session.created_at` is `DATETIME(6)` and `record()` writes `NOW(6)`.** That is
+  load-bearing, not tidiness: at 1-second resolution any two sessions issued in the same
+  second tied, and `listActive()`'s sort fell through to its `jti` tiebreaker — a random
+  UUIDv4. The order was deterministic but unrelated to recency, so "newest first" was
+  simply untrue (a refresh plus a passkey sign-in land in the same second routinely).
+  Writing `NOW()` again would silently reinstate it, and the hand-written DDL in
+  `tests/Infrastructure/PdoSessionRepositoryTest.php` has to stay at `(6)` too — at
+  second resolution that suite passes green while production ordering stays broken.
 - `POST /admin/customer-credentials` — server-to-server, gated by the
   **service token** (`SERVICE_TOKEN`, falls back to `ADMIN_TOKEN`). Called by
   tds-customer-api after a company row is inserted; creates the matching

@@ -41,7 +41,11 @@ final class PdoSessionRepositoryTest extends TestCase
               user_id INT NULL,
               admin TINYINT(1) NOT NULL DEFAULT 0,
               expires_at DATETIME NOT NULL,
-              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              -- DATETIME(6), matching migration 20260805000003. The DDL here is
+              -- hand-written rather than migrated, so it has to be kept in step:
+              -- at 1-second resolution this suite would pass while production
+              -- ordering stayed broken, because record() writes NOW(6).
+              created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
               revoked_at DATETIME NULL,
               PRIMARY KEY (jti),
               KEY idx_customer_id (customer_id),
@@ -142,5 +146,24 @@ final class PdoSessionRepositoryTest extends TestCase
         self::assertCount(2, $rows);
         // Newest first — the last inserted (jti-3) should be at index 0
         self::assertSame('jti-3', $rows[0]['jti']);
+    }
+
+    public function test_list_active_orders_same_second_sessions_by_real_recency(): void
+    {
+        // The regression this exists for: created_at used to be 1-second
+        // resolution, so three sessions issued inside the same second tied and
+        // the sort fell through to the jti tiebreaker — a random UUIDv4. The
+        // order was deterministic but unrelated to recency, which is precisely
+        // what "newest first" must not mean. The jtis below are deliberately
+        // NOT in ascending order, so a tiebreaker-driven sort cannot pass.
+        $this->pdo->exec('DELETE FROM session');
+        foreach (['m-zulu', 'm-alpha', 'm-mike'] as $jti) {
+            $this->repo->record($jti, null, true, time() + 900);
+        }
+
+        $rows = $this->repo->listActive();
+
+        // Insertion order reversed — the last one written comes first.
+        self::assertSame(['m-mike', 'm-alpha', 'm-zulu'], array_column($rows, 'jti'));
     }
 }

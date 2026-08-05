@@ -15,8 +15,11 @@ final class PdoSessionRepository implements SessionRepository
     public function record(string $jti, ?int $customerId, bool $admin, int $expiresAtUnix, ?int $userId = null): void
     {
         $stmt = $this->pdo->prepare(
+            // NOW(6), not NOW(): the column is DATETIME(6) so that listActive()
+            // can order by real recency. NOW() would write `.000000` on every
+            // row and silently reinstate the same-second tie this fixed.
             "INSERT INTO session (jti, customer_id, user_id, admin, expires_at, created_at) "
-            . "VALUES (:jti, :cid, :uid, :admin, FROM_UNIXTIME(:exp), NOW())"
+            . "VALUES (:jti, :cid, :uid, :admin, FROM_UNIXTIME(:exp), NOW(6))"
         );
         $stmt->execute([
             'jti' => $jti,
@@ -62,10 +65,12 @@ final class PdoSessionRepository implements SessionRepository
             'SELECT jti, customer_id, admin, expires_at, created_at '
             . 'FROM session '
             . 'WHERE revoked_at IS NULL AND expires_at > NOW() '
-            // created_at is 1s-resolution (NOW()), so a DESC sort alone leaves
-            // same-second sessions in undefined (PK/jti-ascending = oldest-first)
-            // order. jti DESC is a deterministic tiebreaker. True sub-second
-            // recency would need DATETIME(6) — tracked in #12.
+            // created_at is DATETIME(6) and written with NOW(6), so this really
+            // is newest-first — the promise the method makes. The jti tiebreaker
+            // stays as the last resort for an exact microsecond tie, which keeps
+            // the ordering total. (It was carrying the whole sort while the
+            // column was 1-second resolution, and a UUIDv4 is random, so
+            // same-second sessions came back in an order unrelated to recency.)
             . 'ORDER BY created_at DESC, jti DESC '
             . 'LIMIT :lim'
         );
