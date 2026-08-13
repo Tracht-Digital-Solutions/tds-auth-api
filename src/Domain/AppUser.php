@@ -46,12 +46,35 @@ final class AppUser
         /** Short author bio shown on the public blog author page, or null. */
         public readonly ?string $bio = null,
         public readonly array $memberships = [],
+        /**
+         * The short name the user picked for themselves, shown in the panel's
+         * profile menu. Null falls back to {@see self::label()}. Distinct from
+         * `$name`, which is the account name an admin maintains and which also
+         * drives the blog byline — self-service must not rewrite that.
+         */
+        public readonly ?string $displayName = null,
     ) {
     }
 
     public function isActive(): bool
     {
         return $this->status === 'active';
+    }
+
+    /**
+     * What to call this person in a UI, in descending order of what they
+     * chose themselves. Never empty — an avatar or a menu with a blank name
+     * reads as a broken page, and an email is always present.
+     */
+    public function label(): string
+    {
+        foreach ([$this->displayName, $this->name] as $candidate) {
+            $trimmed = trim((string) $candidate);
+            if ($trimmed !== '') {
+                return $trimmed;
+            }
+        }
+        return $this->email;
     }
 
     /** @return array<string,mixed> */
@@ -61,6 +84,7 @@ final class AppUser
             'id' => $this->id,
             'email' => $this->email,
             'name' => $this->name,
+            'displayName' => $this->displayName,
             'isAdmin' => $this->isAdmin,
             'isSupportAgent' => $this->isSupportAgent,
             'isBlogAuthor' => $this->isBlogAuthor,

@@ -98,17 +98,28 @@ final class FakeAppUserRepository implements AppUserRepository
 
     public array $lastUpdateFields = [];
 
+    /**
+     * Every update() call, keyed by user id and merged — so a test can assert
+     * what was written for ONE user without depending on call order, which is
+     * what `lastUpdateFields` alone forces.
+     *
+     * @var array<int, array<string,mixed>>
+     */
+    public array $updates = [];
+
     public function update(int $id, array $fields): void
     {
         $this->lastUpdateFields = $fields;
+        $this->updates[$id] = array_merge($this->updates[$id] ?? [], $fields);
         $u = $this->users[$id] ?? null;
         if ($u === null) {
             return;
         }
+        $nullable = static fn (mixed $v): ?string => $v !== null ? (string) $v : null;
         $this->users[$id] = $this->attach(new AppUser(
             id: $u->id,
             email: array_key_exists('email', $fields) ? (string) $fields['email'] : $u->email,
-            name: array_key_exists('name', $fields) ? ($fields['name'] !== null ? (string) $fields['name'] : null) : $u->name,
+            name: array_key_exists('name', $fields) ? $nullable($fields['name']) : $u->name,
             isAdmin: array_key_exists('is_admin', $fields) ? (bool) $fields['is_admin'] : $u->isAdmin,
             customerId: array_key_exists('customer_id', $fields) ? ($fields['customer_id'] !== null ? (int) $fields['customer_id'] : null) : $u->customerId,
             permissions: array_key_exists('permissions', $fields) ? Permissions::sanitize($fields['permissions']) : $u->permissions,
@@ -116,6 +127,10 @@ final class FakeAppUserRepository implements AppUserRepository
             passwordHash: $u->passwordHash,
             mustChangePassword: array_key_exists('must_change_password', $fields) ? (bool) $fields['must_change_password'] : $u->mustChangePassword,
             isSupportAgent: array_key_exists('is_support_agent', $fields) ? (bool) $fields['is_support_agent'] : $u->isSupportAgent,
+            isBlogAuthor: array_key_exists('is_blog_author', $fields) ? (bool) $fields['is_blog_author'] : $u->isBlogAuthor,
+            avatarUrl: array_key_exists('avatar_url', $fields) ? $nullable($fields['avatar_url']) : $u->avatarUrl,
+            bio: array_key_exists('bio', $fields) ? $nullable($fields['bio']) : $u->bio,
+            displayName: array_key_exists('display_name', $fields) ? $nullable($fields['display_name']) : $u->displayName,
         ));
     }
 
@@ -207,7 +222,11 @@ final class FakeAppUserRepository implements AppUserRepository
             passwordHash: $u->passwordHash,
             mustChangePassword: $u->mustChangePassword,
             isSupportAgent: $u->isSupportAgent,
+            isBlogAuthor: $u->isBlogAuthor,
+            avatarUrl: $u->avatarUrl,
+            bio: $u->bio,
             memberships: $memberships,
+            displayName: $u->displayName,
         );
     }
 }

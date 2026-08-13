@@ -31,4 +31,30 @@ interface SessionRepository
      * }>
      */
     public function listActive(int $limit = 200): array;
+
+    /**
+     * The same list, restricted to ONE user — what the profile page's
+     * "aktive Sitzungen" shows. Separate from {@see self::listActive()}
+     * because that one neither selects nor filters `user_id`: a self-service
+     * caller filtering the admin list in PHP would have to be handed every
+     * other user's sessions first.
+     *
+     * @return list<array{
+     *   jti: string,
+     *   customer_id: ?int,
+     *   admin: bool,
+     *   expires_at: string,
+     *   created_at: string
+     * }>
+     */
+    public function listActiveForUser(int $userId, int $limit = 50): array;
+
+    /**
+     * Who a session belongs to, or null when it does not exist / is already
+     * revoked or expired.
+     *
+     * Exists so a self-service revoke can prove ownership BEFORE calling
+     * {@see self::revoke()}, which happily revokes any jti it is given.
+     */
+    public function ownerOf(string $jti): ?int;
 }

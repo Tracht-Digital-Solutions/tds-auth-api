@@ -11,7 +11,7 @@ use Tds\AuthApi\Service\AppUserRepository;
 
 final class PdoAppUserRepository implements AppUserRepository
 {
-    private const COLUMNS = 'id, email, password_hash, name, avatar_url, bio, is_admin, is_support_agent, is_blog_author, customer_id, permissions, status, must_change_password';
+    private const COLUMNS = 'id, email, password_hash, name, display_name, avatar_url, bio, is_admin, is_support_agent, is_blog_author, customer_id, permissions, status, must_change_password';
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -168,6 +168,12 @@ final class PdoAppUserRepository implements AppUserRepository
             $sets[] = 'name = :name';
             $params['name'] = $fields['name'] !== null ? (string) $fields['name'] : null;
         }
+        if (array_key_exists('display_name', $fields)) {
+            $sets[] = 'display_name = :displayname';
+            $params['displayname'] = $fields['display_name'] !== null
+                ? (string) $fields['display_name']
+                : null;
+        }
         if (array_key_exists('is_admin', $fields)) {
             $sets[] = 'is_admin = :admin';
             $params['admin'] = $fields['is_admin'] ? 1 : 0;
@@ -261,6 +267,9 @@ final class PdoAppUserRepository implements AppUserRepository
             avatarUrl: isset($row['avatar_url']) && $row['avatar_url'] !== null ? (string) $row['avatar_url'] : null,
             bio: isset($row['bio']) && $row['bio'] !== null ? (string) $row['bio'] : null,
             memberships: $this->membershipsForUser((int) $row['id']),
+            displayName: isset($row['display_name']) && $row['display_name'] !== null
+                ? (string) $row['display_name']
+                : null,
         );
     }
 }

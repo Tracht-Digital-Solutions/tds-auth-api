@@ -112,6 +112,50 @@ final class RefreshActionTest extends TestCase
         self::assertSame(7, $claims['customer_id']);
     }
 
+    public function test_a_non_admin_without_a_company_can_refresh(): void
+    {
+        // This used to `throw new \RuntimeException('non-admin without
+        // customer_id')`, i.e. a 500. LoginAction never checked, so such an
+        // account signed in fine and then broke an hour later on its first
+        // refresh — and it broke in the worst possible shape: the panel's
+        // backstop saw a 500 while /me still answered 200, so the session
+        // neither recovered nor ended. Company membership is optional by
+        // design (a user may belong to none, one, or several).
+        $issued = $this->jwt->issuePrincipal(false, null, 12, [], companies: []);
+        $this->sessions->record($issued['jti'], null, false, $issued['expiresAt'], 12);
+
+        $response = $this->refresh(bearer: $issued['token']);
+
+        self::assertSame(200, $response->getStatusCode());
+        $claims = $this->jwt->verify($this->jsonBody($response)['token']);
+        self::assertFalse($claims['admin']);
+        self::assertNull($claims['customer_id']);
+        self::assertSame(12, $claims['uid']);
+        self::assertSame([], (array) $claims['companies']);
+    }
+
+    public function test_carries_the_identity_claims_forward(): void
+    {
+        // `email` / `name` are what tds-core-frontend-api's JwtUserContext
+        // reads; dropping them on refresh would blank the panel's profile
+        // menu an hour into every session.
+        $issued = $this->jwt->issuePrincipal(
+            false,
+            7,
+            12,
+            ['tickets:read'],
+            email: 'user@example.com',
+            name: 'Julian',
+        );
+        $this->sessions->record($issued['jti'], 7, false, $issued['expiresAt'], 12);
+
+        $response = $this->refresh(bearer: $issued['token']);
+
+        $claims = $this->jwt->verify($this->jsonBody($response)['token']);
+        self::assertSame('user@example.com', $claims['email']);
+        self::assertSame('Julian', $claims['name']);
+    }
+
     public function test_cookie_fallback_used_when_no_authorization_header(): void
     {
         $issued = $this->jwt->issueAdmin();

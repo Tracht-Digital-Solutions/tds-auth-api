@@ -42,6 +42,7 @@ final class PdoAppUserRepositoryTest extends TestCase
               email VARCHAR(254) NOT NULL,
               password_hash VARCHAR(255) NOT NULL,
               name VARCHAR(200) NULL,
+              display_name VARCHAR(100) NULL,
               avatar_url VARCHAR(500) NULL,
               bio TEXT NULL,
               is_admin TINYINT(1) NOT NULL DEFAULT 0,

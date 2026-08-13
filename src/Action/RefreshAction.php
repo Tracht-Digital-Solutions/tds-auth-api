@@ -81,14 +81,20 @@ final class RefreshAction
             ? $this->normaliseCompanies($claims['companies'])
             : [];
 
-        if (!$admin && $customerId === null) {
-            throw new \RuntimeException('non-admin without customer_id');
-        }
+        // A non-admin with no company is legitimate and used to throw here.
+        // `LoginAction` never checked, so such an account signed in fine and
+        // then hit a 500 on its first hourly refresh — the panel's backstop
+        // sees the 500 while `/me` still answers 200, so the session neither
+        // recovers nor ends and the user degrades in place. Company
+        // membership is optional by design (a user may belong to none, one or
+        // several), so issue with `customer_id: null` and no companies.
+        $email = isset($claims['email']) && is_string($claims['email']) ? $claims['email'] : null;
+        $name = isset($claims['name']) && is_string($claims['name']) ? $claims['name'] : null;
 
         // Carry the principal forward without a DB lookup. Authorization
         // changes take effect via session revocation (see UpdateUserAction),
         // which forces a fresh login rather than relying on refresh.
-        $issued = $this->jwt->issuePrincipal($admin, $customerId, $uid, $permissions, $supportAgent, $companies, $blogAuthor);
+        $issued = $this->jwt->issuePrincipal($admin, $customerId, $uid, $permissions, $supportAgent, $companies, $blogAuthor, $email, $name);
 
         $this->sessions->record($issued['jti'], $customerId, $admin, $issued['expiresAt'], $uid);
 

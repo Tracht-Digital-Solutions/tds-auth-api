@@ -166,4 +166,65 @@ final class PdoSessionRepositoryTest extends TestCase
         // Insertion order reversed — the last one written comes first.
         self::assertSame(['m-mike', 'm-alpha', 'm-zulu'], array_column($rows, 'jti'));
     }
+
+    public function test_list_active_for_user_scopes_in_SQL(): void
+    {
+        // The scoping has to happen in the query. If this ever fell back to
+        // filtering listActive() in PHP, a self-service caller would be handed
+        // every other user's session rows first.
+        $this->pdo->exec('DELETE FROM session');
+        $this->repo->record('mine-1', 7, false, time() + 900, 5);
+        $this->repo->record('theirs', 9, false, time() + 900, 6);
+        $this->repo->record('mine-2', 7, false, time() + 900, 5);
+
+        $rows = $this->repo->listActiveForUser(5);
+
+        self::assertSame(['mine-2', 'mine-1'], array_column($rows, 'jti'));
+    }
+
+    public function test_list_active_for_user_omits_revoked_and_expired(): void
+    {
+        $this->pdo->exec('DELETE FROM session');
+        $this->repo->record('live', 7, false, time() + 900, 5);
+        $this->repo->record('stale', 7, false, time() - 60, 5);
+        $this->repo->record('gone', 7, false, time() + 900, 5);
+        $this->repo->revoke('gone');
+
+        $rows = $this->repo->listActiveForUser(5);
+
+        self::assertSame(['live'], array_column($rows, 'jti'));
+    }
+
+    public function test_owner_of_identifies_the_session_holder(): void
+    {
+        $this->pdo->exec('DELETE FROM session');
+        $this->repo->record('mine', 7, false, time() + 900, 5);
+
+        self::assertSame(5, $this->repo->ownerOf('mine'));
+        self::assertNull($this->repo->ownerOf('never-existed'));
+    }
+
+    public function test_owner_of_treats_revoked_and_expired_as_gone(): void
+    {
+        // A self-service revoke proves ownership through this method, and
+        // must report "not found" for a session the caller could not have
+        // seen in their own list.
+        $this->pdo->exec('DELETE FROM session');
+        $this->repo->record('stale', 7, false, time() - 60, 5);
+        $this->repo->record('gone', 7, false, time() + 900, 5);
+        $this->repo->revoke('gone');
+
+        self::assertNull($this->repo->ownerOf('stale'));
+        self::assertNull($this->repo->ownerOf('gone'));
+    }
+
+    public function test_owner_of_returns_null_for_a_session_with_no_user(): void
+    {
+        // Legacy admin-token sessions predate `user_id`. They belong to nobody,
+        // so nobody may revoke them through the self-service route.
+        $this->pdo->exec('DELETE FROM session');
+        $this->repo->record('legacy', null, true, time() + 900);
+
+        self::assertNull($this->repo->ownerOf('legacy'));
+    }
 }

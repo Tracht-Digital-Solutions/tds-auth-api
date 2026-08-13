@@ -11,14 +11,17 @@ use Tds\AuthApi\Action\MeAction;
 use Tds\AuthApi\Domain\AppUser;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
+use Tds\AuthApi\Tests\Support\FakeAvatarRepository;
 
 final class MeActionTest extends TestCase
 {
     private FakeAppUserRepository $users;
+    private FakeAvatarRepository $avatars;
 
     protected function setUp(): void
     {
         $this->users = new FakeAppUserRepository();
+        $this->avatars = new FakeAvatarRepository();
     }
 
     public function test_returns_customer_principal(): void
@@ -97,7 +100,7 @@ final class MeActionTest extends TestCase
         $request = (new ServerRequestFactory())
             ->createServerRequest('GET', '/me')
             ->withAttribute(JwtAuthMiddleware::ATTR_CLAIMS, $claims);
-        return (new MeAction($this->users))($request, new Response());
+        return (new MeAction($this->users, $this->avatars))($request, new Response());
     }
 
     /** @return array<string,mixed> */

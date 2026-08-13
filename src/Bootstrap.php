@@ -18,11 +18,17 @@ use Tds\AuthApi\Action\Admin\Users\ListUsersAction;
 use Tds\AuthApi\Action\Admin\Users\ResetPasswordAction;
 use Tds\AuthApi\Action\Admin\Users\UpdateUserAction;
 use Tds\AuthApi\Action\ChangePasswordAction;
+use Tds\AuthApi\Action\DeleteAvatarAction;
 use Tds\AuthApi\Action\HealthAction;
 use Tds\AuthApi\Action\JwksAction;
+use Tds\AuthApi\Action\ListMySessionsAction;
 use Tds\AuthApi\Action\LoginAction;
 use Tds\AuthApi\Action\MeAction;
 use Tds\AuthApi\Action\RefreshAction;
+use Tds\AuthApi\Action\RevokeMySessionAction;
+use Tds\AuthApi\Action\ShowAvatarAction;
+use Tds\AuthApi\Action\UpdateMeAction;
+use Tds\AuthApi\Action\UploadAvatarAction;
 use Tds\AuthApi\Infrastructure\Database;
 use Tds\AuthApi\Action\Passkey\DeleteAction as DeletePasskeyAction;
 use Tds\AuthApi\Action\Passkey\ListAction as ListPasskeysAction;
@@ -31,6 +37,7 @@ use Tds\AuthApi\Action\Passkey\PasskeyLoginAction;
 use Tds\AuthApi\Action\Passkey\RegisterAction as RegisterPasskeyAction;
 use Tds\AuthApi\Action\Passkey\RegisterOptionsAction as PasskeyRegisterOptionsAction;
 use Tds\AuthApi\Infrastructure\PdoAppUserRepository;
+use Tds\AuthApi\Infrastructure\PdoAvatarRepository;
 use Tds\AuthApi\Infrastructure\PdoPasskeyRepository;
 use Tds\AuthApi\Infrastructure\PdoRememberTokenRepository;
 use Tds\AuthApi\Infrastructure\PdoSessionRepository;
@@ -38,6 +45,8 @@ use Tds\AuthApi\Middleware\AdminAuthMiddleware;
 use Tds\AuthApi\Middleware\CorsMiddleware;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Service\AppUserRepository;
+use Tds\AuthApi\Service\AvatarRepository;
+use Tds\AuthApi\Service\AvatarService;
 use Tds\AuthApi\Service\ChallengeStore;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\PasskeyRepository;
@@ -112,6 +121,18 @@ final class Bootstrap
 
         $container->set(RememberTokenRepository::class, fn (Container $c) => new PdoRememberTokenRepository($c->get(PDO::class)));
 
+        $container->set(AvatarRepository::class, fn (Container $c) => new PdoAvatarRepository($c->get(PDO::class)));
+
+        // The avatar's public URL is built from JWT_ISSUER — this service's own
+        // public base, already written by all three env writers (the gateway's
+        // install.php, deploy/docker-entrypoint.sh and .env.example). A
+        // dedicated AVATAR_BASE_URL would be a fourth thing to keep in sync,
+        // and a missing env value in one writer is exactly how this platform
+        // has broken hosts before.
+        $container->set(AvatarService::class, fn () => new AvatarService(
+            publicBase: self::env('JWT_ISSUER', 'https://api.tracht-digital.de/auth'),
+        ));
+
         $container->set(PasskeyRepository::class, fn (Container $c) => new PdoPasskeyRepository($c->get(PDO::class)));
 
         // Passkeys. The RP ID is the REGISTRABLE DOMAIN, not the login host, so
@@ -183,6 +204,21 @@ final class Bootstrap
         $app->get('/me', MeAction::class)->add($sessionAuth);
         $app->put('/password', ChangePasswordAction::class)->add($sessionAuth);
         $app->put('/customer/password', ChangePasswordAction::class)->add($sessionAuth);
+
+        // Self-service profile. Everything here targets the user in the TOKEN;
+        // none of these routes take a user id. See UpdateMeAction for the
+        // (deliberately short) list of fields a user may change about
+        // themselves and why `name`, `email` and every flag are excluded.
+        $app->patch('/me', UpdateMeAction::class)->add($sessionAuth);
+        $app->post('/me/avatar', UploadAvatarAction::class)->add($sessionAuth);
+        $app->delete('/me/avatar', DeleteAvatarAction::class)->add($sessionAuth);
+        $app->get('/me/sessions', ListMySessionsAction::class)->add($sessionAuth);
+        $app->delete('/me/sessions/{jti}', RevokeMySessionAction::class)->add($sessionAuth);
+
+        // Public avatar read. Unauthenticated BY NECESSITY: a cross-origin
+        // <img src> sends no credentials, so a session-gated avatar would
+        // simply not render in the panel. See ShowAvatarAction.
+        $app->get('/users/{id:[0-9]+}/avatar', ShowAvatarAction::class);
 
         // User management (per-admin JWT).
         $app->get('/admin/users', ListUsersAction::class)->add($adminJwt);

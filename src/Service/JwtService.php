@@ -26,6 +26,8 @@ use Tds\AuthApi\Domain\Membership;
  *   blog_author?: bool,
  *   customer_id?: int|null,
  *   uid?: int|null,
+ *   email?: string|null,
+ *   name?: string|null,
  *   permissions?: list<string>,
  *   companies?: list<array{id:int, permissions:list<string>}>
  * }
@@ -89,6 +91,8 @@ final class JwtService
             $user->isAdmin && $user->isSupportAgent,
             $companies,
             $user->isBlogAuthor,
+            $user->email,
+            $user->label(),
         );
     }
 
@@ -97,11 +101,19 @@ final class JwtService
      * issueForUser) and by refresh, which carries the existing claims
      * forward without a DB lookup.
      *
+     * `$email` / `$name` are identity, not authorization: nothing gates on
+     * them. They are carried because every consuming service already has to
+     * verify this token and would otherwise need a second call back here just
+     * to label a request in a log or a UI — `tds-core-frontend-api`'s
+     * `JwtUserContext` has read `$claims['email']` since it was written, and
+     * the claim never existed, so `UserContext::email()` was permanently null
+     * across the whole composed backend.
+     *
      * @param list<string> $permissions
      * @param list<array{id:int, permissions:list<string>}> $companies
      * @return array{token: string, jti: string, expiresAt: int}
      */
-    public function issuePrincipal(bool $admin, ?int $customerId, ?int $uid, array $permissions, bool $supportAgent = false, array $companies = [], bool $blogAuthor = false): array
+    public function issuePrincipal(bool $admin, ?int $customerId, ?int $uid, array $permissions, bool $supportAgent = false, array $companies = [], bool $blogAuthor = false, ?string $email = null, ?string $name = null): array
     {
         $subject = $uid !== null
             ? (string) $uid
@@ -113,6 +125,8 @@ final class JwtService
             'blog_author' => $blogAuthor,
             'customer_id' => $customerId,
             'uid' => $uid,
+            'email' => $email,
+            'name' => $name,
             'permissions' => array_values($permissions),
             'companies' => array_values($companies),
         ], $subject);

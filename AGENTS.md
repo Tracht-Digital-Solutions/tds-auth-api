@@ -28,11 +28,20 @@ in `Domain\Permissions` from tds-shared-pkg's `PORTAL_PERMISSIONS` — includes
 denormalised **primary** membership (the default active company), kept in sync
 with the first membership row by `PdoAppUserRepository::setMemberships`. Multiple
 accounts may share a company. The JWT carries `admin`, `support_agent`,
-`customer_id` (primary), `uid`, `permissions` (primary) and **`companies`**
-(the full membership list `[{id, permissions}]`); the portal picks one active
-company per session and customer-api enforces that company's permissions. (The
-old `customer_credential` table is left in place for rollback but is no longer
-read.)
+`customer_id` (primary), `uid`, `permissions` (primary), **`companies`**
+(the full membership list `[{id, permissions}]`) and — since 0.5.0 — `email`
+and `name`; the portal picks one active company per session and customer-api
+enforces that company's permissions. (The old `customer_credential` table is
+left in place for rollback but is no longer read.)
+
+`email` / `name` are **identity, not authorization** — nothing gates on them.
+They exist because every consuming service already verifies this token and
+would otherwise need a call back here just to label a request in a log or a
+header: `tds-core-frontend-api`'s `JwtUserContext` has read `$claims['email']`
+since it was written, the claim never existed, and so `UserContext::email()`
+was permanently `null` across the entire composed backend. `name` is
+`AppUser::label()` — `display_name`, else `name`, else the email — resolved
+once here so no consumer invents its own fallback and renders a blank header.
 
 `is_support_agent` marks the subset of **admins** that support tickets can be
 assigned to (the "Bearbeiter", read by tds-customer-api / tds-admin). It only
@@ -69,6 +78,51 @@ returned by `/me` + the user list.
   password change must terminate a lost/stolen device, which could otherwise
   keep refreshing for the 30-day refresh TTL) and issues a fresh session for
   the current device so the caller stays logged in. Gated by `JwtAuthMiddleware`.
+- **Self-service profile — `PATCH /me`, `POST|DELETE /me/avatar`,
+  `GET /me/sessions`, `DELETE /me/sessions/{jti}`.** All gated by
+  `JwtAuthMiddleware` (any session) and all targeting **the user in the token**;
+  none of them takes a user id. Three things here are deliberate:
+  - **`PATCH /me` accepts exactly one field, `displayName`.** Not `name` (it is
+    the account name an admin maintains and it drives the public blog byline —
+    a different decision from picking a nickname for your own header), not
+    `email` (login identity, uniquely indexed, needs a confirmation flow), and
+    none of the flags. Unknown keys are ignored rather than 422'd, because the
+    obvious client mistake is POSTing back a whole `/me` object. Nothing here
+    is authorization-relevant, so **no sessions are revoked** — that is why the
+    action has no `SessionRepository` at all, and a test pins the constructor
+    arity so one cannot quietly appear.
+  - **`DELETE /me/sessions/{jti}` proves ownership first and answers 404, not
+    403, for someone else's session.** `SessionRepository::revoke()` revokes
+    whatever jti it is handed and knows nothing about owners, so the check
+    lives here via `ownerOf()`. A 403 would confirm the jti exists, turning the
+    route into an existence oracle; unknown, foreign, already-revoked and
+    expired all answer identically. Revoking your *own* current session is
+    allowed — that is just logging out from the session list.
+  - **`GET /me/sessions` scopes in SQL** (`listActiveForUser`), not by filtering
+    `listActive()` in PHP, which would hand a self-service caller every other
+    user's rows first. `current: true` marks the requesting session, without
+    which "Abmelden" on an unlabelled row is a coin flip.
+- **`GET /users/{id}/avatar` is UNAUTHENTICATED, by necessity.** A cross-origin
+  `<img src>` sends no credentials, and the panel (`management.`/`app.`) is a
+  different origin from this service (`api.`), so a session-gated avatar simply
+  would not render; the alternative — inlining every avatar as a data URL —
+  would put the bytes in every `/me` response and defeat HTTP caching. What it
+  exposes is a picture the person chose as their public representation, which
+  already appears on the public blog's author pages, and a user id with no
+  avatar is indistinguishable from one that does not exist (both 404).
+  **The bytes live in `app_user_avatar` (MEDIUMBLOB), not on disk** — same
+  reasoning as `cms_legal_doc` in tds-ext-website-cms-pkg: no writable
+  directory on the Plesk host, which is this platform's chronic go-live
+  blocker. `app_user.avatar_url` had pointed at the archived tds-content-api's
+  `/uploads` since 20260707000001, so there was no working upload path at all.
+  Uploads are **sniffed with `getimagesizefromstring`, never trusted from the
+  part's `Content-Type`**, and **SVG is rejected** — it is a document that can
+  carry `<script>`, and this file is served from the origin the session cookie
+  is scoped to. There is no server-side resizing (no guaranteed `ext-gd`); the
+  panel downscales in a `<canvas>` first and 2 MiB is the ceiling for a client
+  that skipped it. The public URL is built from **`JWT_ISSUER`** rather than a
+  new env var, precisely because a fourth thing to keep in sync across
+  `install.php` / `docker-entrypoint.sh` / `.env.example` is how hosts break here.
 - `GET|POST /admin/users`, `PATCH|DELETE /admin/users/{id}`,
   `POST /admin/users/{id}/reset-password` — user management, gated by
   `JwtAuthMiddleware(requireAdmin: true)` (per-admin JWT, not the shared
@@ -88,8 +142,15 @@ returned by `/me` + the user list.
   **service token** (`SERVICE_TOKEN`, falls back to `ADMIN_TOKEN`). Called by
   tds-customer-api after a company row is inserted; creates the matching
   `app_user` (full portal access by default).
-- `POST /refresh` — rotate access token, carrying `uid`/`permissions` forward
-  (verifies signature + session revocation).
+- `POST /refresh` — rotate access token, carrying `uid`/`permissions`/`email`/
+  `name` forward (verifies signature + session revocation).
+  **A non-admin with no company membership is legitimate here.** This used to
+  `throw new \RuntimeException('non-admin without customer_id')`, i.e. a 500 —
+  and `LoginAction` never checked, so such an account signed in fine and then
+  broke an hour later on its first refresh, in the worst possible shape: the
+  panel's backstop saw a 500 while `/me` still answered 200, so the session
+  neither recovered nor ended and the user degraded in place. Company
+  membership is optional by design (none, one, or several).
 - `GET /.well-known/jwks.json` — public key in JWKS format.
 
 Bootstrap the first admin (the shared-token paste login is gone). Two paths,

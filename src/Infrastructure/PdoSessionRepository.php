@@ -77,7 +77,52 @@ final class PdoSessionRepository implements SessionRepository
         $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
         $stmt->execute();
 
-        $rows = $stmt->fetchAll();
+        return self::mapRows($stmt->fetchAll());
+    }
+
+    public function listActiveForUser(int $userId, int $limit = 50): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT jti, customer_id, admin, expires_at, created_at '
+            . 'FROM session '
+            . 'WHERE user_id = :uid AND revoked_at IS NULL AND expires_at > NOW() '
+            // Same total ordering as listActive(): DATETIME(6) first, jti only
+            // as the microsecond-tie breaker.
+            . 'ORDER BY created_at DESC, jti DESC '
+            . 'LIMIT :lim'
+        );
+        $stmt->bindValue(':uid', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return self::mapRows($stmt->fetchAll());
+    }
+
+    public function ownerOf(string $jti): ?int
+    {
+        // Revoked and expired sessions deliberately do NOT match: a
+        // self-service revoke of one is a no-op the caller should see as
+        // "gone", and treating it as found would let the route report success
+        // for a session that is not in the list it was picked from.
+        $stmt = $this->pdo->prepare(
+            'SELECT user_id FROM session '
+            . 'WHERE jti = :jti AND revoked_at IS NULL AND expires_at > NOW() LIMIT 1'
+        );
+        $stmt->execute(['jti' => $jti]);
+        $row = $stmt->fetch();
+
+        if (!is_array($row) || $row['user_id'] === null) {
+            return null;
+        }
+        return (int) $row['user_id'];
+    }
+
+    /**
+     * @param list<array<string,mixed>> $rows
+     * @return list<array{jti: string, customer_id: ?int, admin: bool, expires_at: string, created_at: string}>
+     */
+    private static function mapRows(array $rows): array
+    {
         return array_map(static fn (array $r) => [
             'jti' => (string) $r['jti'],
             'customer_id' => $r['customer_id'] !== null ? (int) $r['customer_id'] : null,
