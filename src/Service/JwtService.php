@@ -24,12 +24,13 @@ use Tds\AuthApi\Domain\Membership;
  *   admin: bool,
  *   support_agent?: bool,
  *   blog_author?: bool,
+ *   company_id?: int|null,
  *   customer_id?: int|null,
  *   uid?: int|null,
  *   email?: string|null,
  *   name?: string|null,
  *   permissions?: list<string>,
- *   companies?: list<array{id:int, permissions:list<string>}>
+ *   companies?: list<array{id:int, permissions:list<string>, admin?:bool}>
  * }
  */
 final class JwtService
@@ -69,23 +70,39 @@ final class JwtService
      * Issue a JWT for a unified user. Admins carry no portal permissions
      * (they bypass permission checks downstream).
      *
+     * `$resolver` supplies each membership's EFFECTIVE permissions — direct
+     * grants ∪ groups ∩ ceiling. It is a callback rather than a repository
+     * dependency because this service must stay constructible from a keypair
+     * alone (`composer keygen`, several tests); without one, the membership's
+     * direct grants are used, which is exactly the pre-groups behaviour.
+     *
+     * @param null|callable(Membership): list<string> $resolver
      * @return array{token: string, jti: string, expiresAt: int}
      */
-    public function issueForUser(AppUser $user): array
+    public function issueForUser(AppUser $user, ?callable $resolver = null): array
     {
-        // Non-admins carry their company memberships (id + per-company perms);
-        // the flat customer_id/permissions claims mirror the primary company for
-        // backward compatibility. Admins bypass permissions, so they carry none.
+        // Non-admins carry their company memberships; the flat
+        // company_id/permissions claims mirror the primary company. Admins
+        // bypass permissions, so they carry none — and no memberships either:
+        // their reach is "any company", which is not belonging to one.
         $companies = $user->isAdmin
             ? []
             : array_map(
-                static fn (Membership $m): array => ['id' => $m->customerId, 'permissions' => $m->permissions],
+                static fn (Membership $m): array => [
+                    'id' => $m->companyId,
+                    'permissions' => $resolver !== null ? $resolver($m) : $m->permissions,
+                    // Whether this membership may manage the company's users.
+                    // Read by CompanyAdminMiddleware; the claim is signed, so
+                    // it is trusted — every change to the flag revokes the
+                    // user's sessions, which is how it propagates.
+                    'admin' => $m->isCompanyAdmin,
+                ],
                 $user->memberships,
             );
 
         return $this->issuePrincipal(
             $user->isAdmin,
-            $user->customerId,
+            $user->companyId,
             $user->id,
             $user->isAdmin ? [] : $user->permissions,
             $user->isAdmin && $user->isSupportAgent,
@@ -110,20 +127,28 @@ final class JwtService
      * across the whole composed backend.
      *
      * @param list<string> $permissions
-     * @param list<array{id:int, permissions:list<string>}> $companies
+     * @param list<array{id:int, permissions:list<string>, admin?:bool}> $companies
      * @return array{token: string, jti: string, expiresAt: int}
      */
-    public function issuePrincipal(bool $admin, ?int $customerId, ?int $uid, array $permissions, bool $supportAgent = false, array $companies = [], bool $blogAuthor = false, ?string $email = null, ?string $name = null): array
+    public function issuePrincipal(bool $admin, ?int $companyId, ?int $uid, array $permissions, bool $supportAgent = false, array $companies = [], bool $blogAuthor = false, ?string $email = null, ?string $name = null): array
     {
         $subject = $uid !== null
             ? (string) $uid
-            : ($admin ? 'admin' : (string) ($customerId ?? '0'));
+            : ($admin ? 'admin' : (string) ($companyId ?? '0'));
 
         return $this->issue([
             'admin' => $admin,
             'support_agent' => $supportAgent,
             'blog_author' => $blogAuthor,
-            'customer_id' => $customerId,
+            'company_id' => $companyId,
+            // Deprecated alias of `company_id`, emitted for ONE release.
+            //
+            // A verifier built before the rename reads `customer_id` and would
+            // otherwise see null — and every service verifies this token
+            // independently, so they do not all deploy at the same instant.
+            // Both are written; readers accept either; the follow-up release
+            // drops this line.
+            'customer_id' => $companyId,
             'uid' => $uid,
             'email' => $email,
             'name' => $name,

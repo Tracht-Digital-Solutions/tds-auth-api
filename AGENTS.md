@@ -19,17 +19,34 @@ root. The build model is dev/release (see README): a push to `main` auto-assembl
 
 ## Endpoints
 
+> ## There is no "Kunde" person — only Benutzer, and Firmen they may belong to
+>
+> `customer` was always the word for a **company**; people were always
+> `app_user`. Having both words in the schema is what made the product look
+> like it had two kinds of people. As of 0.6.0 the schema says what it means:
+> `app_user_customer` → **`app_user_company`**, every `customer_id` →
+> **`company_id`**, and the Firmen extension's rights `customers:*` →
+> **`companies:*`**.
+>
+> **Both spellings are still accepted for ONE release** — the `customer_id`
+> JWT claim is still emitted, `PermissionAliases` normalises the old permission
+> ids on read, and `?customer_id=` / `customerId` are still read in payloads.
+> That is not politeness: a token minted five minutes before the deploy carries
+> the old claim for up to an hour, and every service verifies independently, so
+> they do not all switch at the same instant. **The follow-up release deletes
+> the aliases** — leaving them means the old name works forever and the rename
+> bought nothing.
+
 Unified user model: one `app_user` row = one login spanning both frontends.
 `is_admin` grants admin-frontend access; portal access is a set of **company
-memberships** in `app_user_customer` — a login can belong to **several**
-companies, each with its own `permissions` JSON array (catalog hand-duplicated
-in `Domain\Permissions` from tds-shared-pkg's `PORTAL_PERMISSIONS` — includes
-`tickets:read`/`tickets:write`). `app_user.customer_id` + `permissions` are the
+memberships** in `app_user_company` — a login can belong to **several**
+companies, each with its own `permissions` JSON array.
+`app_user.company_id` + `permissions` are the
 denormalised **primary** membership (the default active company), kept in sync
 with the first membership row by `PdoAppUserRepository::setMemberships`. Multiple
 accounts may share a company. The JWT carries `admin`, `support_agent`,
-`customer_id` (primary), `uid`, `permissions` (primary), **`companies`**
-(the full membership list `[{id, permissions}]`) and — since 0.5.0 — `email`
+`company_id` (primary), `uid`, `permissions` (primary), **`companies`**
+(the full membership list `[{id, permissions, admin}]`) and — since 0.5.0 — `email`
 and `name`; the portal picks one active company per session and customer-api
 enforces that company's permissions. (The old `customer_credential` table is
 left in place for rollback but is no longer read.)
@@ -42,6 +59,115 @@ since it was written, the claim never existed, and so `UserContext::email()`
 was permanently `null` across the entire composed backend. `name` is
 `AppUser::label()` — `display_name`, else `name`, else the email — resolved
 once here so no consumer invents its own fallback and renders a blank header.
+
+> **`Permissions::sanitize()` validates the SHAPE now, not a catalog — and
+> nothing filters on READ any more.** It used to intersect with nine hardcoded
+> portal keys on write *and* on hydrate, so every one of the thirteen composed
+> extensions' permissions (`companies:read`, `time:read`, `wiki:write`) was
+> accepted by the UI, written to the database, and silently dropped again on
+> load. An admin ticked a box, saw it save, and the user never got the right.
+>
+> The authoritative catalog belongs to the service that ENFORCES it (the
+> composed API's `GET /admin/permissions`); `UserContext::has()` is an exact
+> string match, so an unrecognised key grants nothing anywhere. The failure mode
+> moves from **silent data loss** to **inert data**.
+>
+> Deliberately not solved by syncing a catalog table here — a second source of
+> truth that goes stale in the dangerous direction, where a newly composed
+> extension stays ungrantable until a sync runs — nor by calling the composed
+> API: **login must never depend on a service that has been down for weeks.**
+>
+> **Filtering on read is the part that must not come back.** It means a catalog
+> change retroactively rewrites what the database says. `hydrate()` returns what
+> is stored; `sanitize()` runs on write only, and its output is now in INPUT
+> order (the old `array_intersect` silently re-sorted to catalog order).
+>
+> ⚠ **Audit the rows before deploying.** Anything granted over the last year
+> outside those nine keys is already IN the database and was only being dropped
+> on read — removing the read filter hands it to people. The audit query is in
+> the Phase 2 plan; eyeball it and clean anything unexpected in the same
+> migration.
+
+## Groups, company admins and quotas (0.6.0)
+
+**Groups are real rows now.** `PORTAL_ROLE_PRESETS` in tds-shared was UI sugar:
+the editor expanded one into a flat array on click and nothing recorded which
+preset was used, so editing a "role" later changed nothing for anyone already
+carrying it. `auth_group` + `auth_user_group` replace it, seeded from exactly
+those four (with the permission lists **hard-coded in the migration** — a
+migration must never import a moving constant).
+
+- **`company_id = 0` means platform-wide**, and is NOT nullable: MySQL treats
+  NULLs as distinct in a unique index, so a nullable column would accept two
+  platform groups with the same slug.
+- **The ASSIGNMENT carries the company**, not the membership row. A login in two
+  companies routinely needs "Buchhaltung" at A and "Nur Lesen" at B.
+- **Companies may own groups**, gated on `auth_company_policy.allow_custom_groups`
+  and capped by the same ceiling — otherwise a custom group is a trivial way
+  around it: put the forbidden right in a group, assign the group.
+- **No assignments are backfilled.** Inferring "this user's set equals preset X,
+  so give them the group" is a guess that would silently change their access the
+  first time someone edits the group.
+
+**Effective permissions = `direct ∪ groups ∩ ceiling`** (`EffectivePermissions`,
+a pure function — the whole model is testable without a DB). Grant-only: there
+are no deny rules and there will not be, because they make "why can this person
+not do X" stop having a single answer and would compete with the ceiling.
+
+**The ceiling is intersected at TOKEN-ISSUE time, not only when granting.**
+Checking it only on write would make it a one-time gate — lower a company's
+`allowed_permissions` afterwards and every already-assigned group keeps
+out-granting it. Intersecting on issue is what makes a lowered ceiling actually
+lower anything.
+
+**The JWT keeps its exact shape**: `companies: [{id, permissions, admin}]`
+carries RESOLVED values, so `JwtUserContext` in the composed API and all
+thirteen extensions' RBAC work unchanged — no contract change, no coordinated
+deploy. Shipping group ids instead would make every consumer learn what a group
+is and re-resolve it against a database it does not have. The cost is that a
+group edit reaches a user on their next token, which is why the write paths
+revoke the members' sessions.
+
+### The delegated surface: `/company/{companyId}/*`
+
+Gated by `CompanyAdminMiddleware` (after `JwtAuthMiddleware`; Slim is LIFO).
+Passes for a platform admin, or for a `companies[]` entry with `admin: true`.
+
+- **Scoped by the PATH, not `X-Act-As-*`.** auth-api's CORS allow-list does not
+  carry that header, and widening it on the service that holds the keypair to
+  save a path segment is a bad trade — plus a company id inferred from ambient
+  state does not appear in the access log, and a destructive route should say
+  out loud which tenant it acted on.
+- **`ATTR_COMPANY_ID` is namespaced (`tds.companyId`).** Slim publishes every
+  route argument as a request attribute under its own name, so a plain
+  `companyId` is silently overwritten by the route's raw string — and `(int) "7"`
+  still works, which is why this would have gone unnoticed for a long time.
+
+Every write obeys `CompanyUserGuard`, and each rule is a boundary rather than a
+nicety:
+
+| Guard | Why |
+|---|---|
+| target must be a member → **404** | 403 would confirm the account exists, making the route an existence oracle for other companies' users |
+| never touch a platform admin | otherwise a company admin can disable the account that administers the platform |
+| field whitelist → **422**, loudly | silently dropping `isAdmin` means a broken (or probing) client gets a 200 and believes it worked. `permissionCeiling` is absent from the list, which is what stops a company admin raising their own |
+| ceiling covers **groups too** | else: assign a platform group containing the forbidden key, ceiling bypassed without ever naming it |
+| last company admin → **409** | mirrors the platform's self-lockout guard; otherwise only a platform admin can restore access |
+| delete removes the MEMBERSHIP | a login can belong to several companies — deleting the account because company A is done with them takes away company B, silently, from a route that named only A |
+| seat cap under `SELECT … FOR UPDATE` | a plain count-then-insert lets two concurrent creates both take the last seat |
+
+**Seats count DISABLED users too.** Otherwise "disable one, add another" is a
+free seat, which is the first thing anyone tries.
+
+**A company with no policy row is unrestricted** — exactly today's behaviour, so
+the feature is opt-in per company rather than a migration everyone must survive.
+`max_users: null` = unlimited; `allowed_permissions: null` = no ceiling, but
+`[]` = "may grant nothing", and collapsing those two would make locking a
+company down unexpressible.
+
+> **One manual step after deploying:** every `is_company_admin` starts `0`, so a
+> platform admin has to promote the first company admin of each company by hand.
+> Without it the whole feature looks broken. See `RUNBOOK.md`.
 
 `is_support_agent` marks the subset of **admins** that support tickets can be
 assigned to (the "Bearbeiter", read by tds-customer-api / tds-admin). It only

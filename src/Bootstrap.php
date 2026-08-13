@@ -8,6 +8,7 @@ use Dotenv\Dotenv;
 use PDO;
 use Slim\App;
 use Slim\Factory\AppFactory;
+use Slim\Routing\RouteCollectorProxy;
 use Tds\AuthApi\Action\Admin\CreateCustomerCredentialAction;
 use Tds\AuthApi\Action\Admin\ListSessionsAction;
 use Tds\AuthApi\Action\Admin\LogoutAction as AdminLogoutAction;
@@ -17,6 +18,17 @@ use Tds\AuthApi\Action\Admin\Users\DeleteUserAction;
 use Tds\AuthApi\Action\Admin\Users\ListUsersAction;
 use Tds\AuthApi\Action\Admin\Users\ResetPasswordAction;
 use Tds\AuthApi\Action\Admin\Users\UpdateUserAction;
+use Tds\AuthApi\Action\Admin\Companies\CompanyPolicyAction;
+use Tds\AuthApi\Action\Admin\Companies\SaveCompanyPolicyAction;
+use Tds\AuthApi\Action\Admin\Groups\CreateGroupAction;
+use Tds\AuthApi\Action\Admin\Groups\DeleteGroupAction;
+use Tds\AuthApi\Action\Admin\Groups\ListGroupsAction;
+use Tds\AuthApi\Action\Admin\Groups\UpdateGroupAction;
+use Tds\AuthApi\Action\Company\CompanyGroupAction;
+use Tds\AuthApi\Action\Company\CreateCompanyUserAction;
+use Tds\AuthApi\Action\Company\ListCompanyUsersAction;
+use Tds\AuthApi\Action\Company\RemoveCompanyUserAction;
+use Tds\AuthApi\Action\Company\UpdateCompanyUserAction;
 use Tds\AuthApi\Action\ChangePasswordAction;
 use Tds\AuthApi\Action\DeleteAvatarAction;
 use Tds\AuthApi\Action\HealthAction;
@@ -38,16 +50,22 @@ use Tds\AuthApi\Action\Passkey\RegisterAction as RegisterPasskeyAction;
 use Tds\AuthApi\Action\Passkey\RegisterOptionsAction as PasskeyRegisterOptionsAction;
 use Tds\AuthApi\Infrastructure\PdoAppUserRepository;
 use Tds\AuthApi\Infrastructure\PdoAvatarRepository;
+use Tds\AuthApi\Infrastructure\PdoCompanyPolicyRepository;
+use Tds\AuthApi\Infrastructure\PdoGroupRepository;
 use Tds\AuthApi\Infrastructure\PdoPasskeyRepository;
 use Tds\AuthApi\Infrastructure\PdoRememberTokenRepository;
 use Tds\AuthApi\Infrastructure\PdoSessionRepository;
 use Tds\AuthApi\Middleware\AdminAuthMiddleware;
+use Tds\AuthApi\Middleware\CompanyAdminMiddleware;
 use Tds\AuthApi\Middleware\CorsMiddleware;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\AvatarRepository;
 use Tds\AuthApi\Service\AvatarService;
 use Tds\AuthApi\Service\ChallengeStore;
+use Tds\AuthApi\Service\CompanyPolicyRepository;
+use Tds\AuthApi\Service\GroupRepository;
+use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\PasskeyRepository;
 use Tds\AuthApi\Service\JwtService;
@@ -87,7 +105,13 @@ final class Bootstrap
 
         $container->set(SessionRepository::class, fn (Container $c) => new PdoSessionRepository($c->get(PDO::class)));
 
-        $container->set(AppUserRepository::class, fn (Container $c) => new PdoAppUserRepository($c->get(PDO::class)));
+        // The group repository is injected so a hydrated membership carries its
+        // `groupIds` — the user editor needs them, and without it the editor
+        // would show every user as belonging to no group.
+        $container->set(AppUserRepository::class, fn (Container $c) => new PdoAppUserRepository(
+            $c->get(PDO::class),
+            $c->get(GroupRepository::class),
+        ));
 
         $container->set(RateLimiter::class, fn (Container $c) => new PdoRateLimiter(
             pdo: $c->get(PDO::class),
@@ -122,6 +146,15 @@ final class Bootstrap
         $container->set(RememberTokenRepository::class, fn (Container $c) => new PdoRememberTokenRepository($c->get(PDO::class)));
 
         $container->set(AvatarRepository::class, fn (Container $c) => new PdoAvatarRepository($c->get(PDO::class)));
+
+        $container->set(GroupRepository::class, fn (Container $c) => new PdoGroupRepository($c->get(PDO::class)));
+        $container->set(CompanyPolicyRepository::class, fn (Container $c) => new PdoCompanyPolicyRepository($c->get(PDO::class)));
+
+        // Direct grants ∪ groups ∩ ceiling — what a token actually carries.
+        $container->set(PermissionResolver::class, fn (Container $c) => new PermissionResolver(
+            $c->get(GroupRepository::class),
+            $c->get(CompanyPolicyRepository::class),
+        ));
 
         // The avatar's public URL is built from JWT_ISSUER — this service's own
         // public base, already written by all three env writers (the gateway's
@@ -226,6 +259,46 @@ final class Bootstrap
         $app->patch('/admin/users/{id}', UpdateUserAction::class)->add($adminJwt);
         $app->delete('/admin/users/{id}', DeleteUserAction::class)->add($adminJwt);
         $app->post('/admin/users/{id}/reset-password', ResetPasswordAction::class)->add($adminJwt);
+
+        // Permission groups (platform). A group is a real row now, not the
+        // client-side preset expansion it used to be — editing one changes what
+        // its members may do, which is why the write paths revoke sessions.
+        $app->get('/admin/groups', ListGroupsAction::class)->add($adminJwt);
+        $app->post('/admin/groups', CreateGroupAction::class)->add($adminJwt);
+        $app->patch('/admin/groups/{id:[0-9]+}', UpdateGroupAction::class)->add($adminJwt);
+        $app->delete('/admin/groups/{id:[0-9]+}', DeleteGroupAction::class)->add($adminJwt);
+
+        // Per-company limits the platform admin imposes: seats, the ceiling on
+        // what may be granted, and whether the company may define its own
+        // groups. A company with no policy is unrestricted — the feature is
+        // opt-in per company.
+        $app->get('/admin/companies/{companyId:[0-9]+}/policy', CompanyPolicyAction::class)->add($adminJwt);
+        $app->put('/admin/companies/{companyId:[0-9]+}/policy', SaveCompanyPolicyAction::class)->add($adminJwt);
+
+        // --- The delegated company-admin surface ---------------------------
+        //
+        // Scoped by the PATH, not a header: the target company has to be
+        // explicit in the access log, and auth-api's CORS allow-list does not
+        // carry `X-Act-As-*` (widening it on the service that holds the
+        // keypair, to save a path segment, is a bad trade).
+        //
+        // Slim middleware is LIFO — the LAST `add()` runs FIRST — so the JWT
+        // gate is added last and CompanyAdminMiddleware sees the claims it
+        // attached.
+        $companyAdmin = new CompanyAdminMiddleware();
+
+        $app->group('/company/{companyId:[0-9]+}', function (RouteCollectorProxy $group): void {
+            $group->get('/users', ListCompanyUsersAction::class);
+            $group->post('/users', CreateCompanyUserAction::class);
+            $group->patch('/users/{id:[0-9]+}', UpdateCompanyUserAction::class);
+            $group->delete('/users/{id:[0-9]+}', RemoveCompanyUserAction::class);
+
+            // Company-owned groups, gated additionally on the policy's
+            // `allow_custom_groups`.
+            $group->post('/groups', CompanyGroupAction::class);
+            $group->patch('/groups/{id:[0-9]+}', CompanyGroupAction::class);
+            $group->delete('/groups/{id:[0-9]+}', CompanyGroupAction::class);
+        })->add($companyAdmin)->add($sessionAuth);
 
         // Session inspection (per-admin JWT).
         $app->get('/admin/sessions', ListSessionsAction::class)->add($adminJwt);

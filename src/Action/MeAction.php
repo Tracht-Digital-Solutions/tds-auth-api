@@ -62,7 +62,10 @@ final class MeAction
             'companies' => $user->isAdmin
                 ? []
                 : array_map(static fn ($m) => $m->toArray(), $user->memberships),
-            'customerId' => $user->customerId,
+            'companyId' => $user->companyId,
+            // Deprecated alias, emitted for one release so a client built
+            // against the old name keeps working. Dropped in the follow-up.
+            'customerId' => $user->companyId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
             'mustChangePassword' => $user->mustChangePassword,
             // Session expiry (Unix seconds) straight from the verified token's

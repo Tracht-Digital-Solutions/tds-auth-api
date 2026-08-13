@@ -30,7 +30,7 @@ final class UpdateMeActionTest extends TestCase
             email: 'user@example.com',
             name: 'Julian Tracht',
             isAdmin: false,
-            customerId: 7,
+            companyId: 7,
             permissions: ['tickets:read'],
             status: 'active',
             passwordHash: 'x',
@@ -101,8 +101,12 @@ final class UpdateMeActionTest extends TestCase
         // The seeded single-company membership is untouched — `memberships`
         // and `customerId` in the body reached nothing.
         self::assertSame(
-            [['customerId' => 7, 'permissions' => ['tickets:read']]],
-            $this->users->membershipRows[5],
+            [7],
+            array_column($this->users->membershipRows[5], 'companyId'),
+        );
+        self::assertSame(
+            ['tickets:read'],
+            $this->users->membershipRows[5][0]['permissions'],
         );
     }
 

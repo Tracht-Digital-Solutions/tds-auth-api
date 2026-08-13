@@ -116,7 +116,7 @@ final class PasskeyLoginAction
         $this->passkeys->touch($passkey['id'], $lib->getSignatureCounter() ?? $passkey['sign_count']);
 
         $issued = $this->jwt->issueForUser($user);
-        $this->sessions->record($issued['jti'], $user->customerId, $user->isAdmin, $issued['expiresAt'], $user->id);
+        $this->sessions->record($issued['jti'], $user->companyId, $user->isAdmin, $issued['expiresAt'], $user->id);
 
         $result = $this->json($response, 200, [
             'token' => $issued['token'],
@@ -127,7 +127,7 @@ final class PasskeyLoginAction
             'isBlogAuthor' => $user->isBlogAuthor,
             'avatarUrl' => $user->avatarUrl,
             'companies' => $user->isAdmin ? [] : array_map(static fn ($m) => $m->toArray(), $user->memberships),
-            'customerId' => $user->customerId,
+            'customerId' => $user->companyId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
             // A passkey IS the stronger factor — it does not clear a pending
             // password change, but it also never triggers one on its own.

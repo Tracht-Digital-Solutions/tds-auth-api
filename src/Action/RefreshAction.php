@@ -72,7 +72,7 @@ final class RefreshAction
         $admin = (bool) ($claims['admin'] ?? false);
         $supportAgent = (bool) ($claims['support_agent'] ?? false);
         $blogAuthor = (bool) ($claims['blog_author'] ?? false);
-        $customerId = isset($claims['customer_id']) && is_int($claims['customer_id']) ? $claims['customer_id'] : null;
+        $companyId = self::companyIdFrom($claims);
         $uid = isset($claims['uid']) && is_int($claims['uid']) ? $claims['uid'] : null;
         $permissions = isset($claims['permissions']) && is_array($claims['permissions'])
             ? array_values(array_map('strval', $claims['permissions']))
@@ -87,22 +87,44 @@ final class RefreshAction
         // sees the 500 while `/me` still answers 200, so the session neither
         // recovers nor ends and the user degrades in place. Company
         // membership is optional by design (a user may belong to none, one or
-        // several), so issue with `customer_id: null` and no companies.
+        // several), so issue with `company_id: null` and no companies.
         $email = isset($claims['email']) && is_string($claims['email']) ? $claims['email'] : null;
         $name = isset($claims['name']) && is_string($claims['name']) ? $claims['name'] : null;
 
         // Carry the principal forward without a DB lookup. Authorization
         // changes take effect via session revocation (see UpdateUserAction),
         // which forces a fresh login rather than relying on refresh.
-        $issued = $this->jwt->issuePrincipal($admin, $customerId, $uid, $permissions, $supportAgent, $companies, $blogAuthor, $email, $name);
+        $issued = $this->jwt->issuePrincipal($admin, $companyId, $uid, $permissions, $supportAgent, $companies, $blogAuthor, $email, $name);
 
-        $this->sessions->record($issued['jti'], $customerId, $admin, $issued['expiresAt'], $uid);
+        $this->sessions->record($issued['jti'], $companyId, $admin, $issued['expiresAt'], $uid);
 
         $response = $this->json($response, 200, [
             'token' => $issued['token'],
             'expiresAt' => $issued['expiresAt'],
         ]);
         return $response->withHeader('Set-Cookie', $this->cookies->set($issued['token'], $this->jwt->ttl()));
+    }
+
+    /**
+     * The company from either claim spelling.
+     *
+     * A token minted before the `customer` → `company` rename carries
+     * `customer_id`, and it stays valid for up to an hour after the deploy —
+     * reading only the new name would drop the company on the first refresh
+     * and silently strip a portal user of their tenant. Removed with the rest
+     * of the aliases in the follow-up release.
+     *
+     * @param array<string,mixed> $claims
+     */
+    private static function companyIdFrom(array $claims): ?int
+    {
+        foreach (['company_id', 'customer_id'] as $key) {
+            if (isset($claims[$key]) && is_int($claims[$key])) {
+                return $claims[$key];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -145,7 +167,7 @@ final class RefreshAction
         }
 
         $issued = $this->jwt->issueForUser($user);
-        $this->sessions->record($issued['jti'], $user->customerId, $user->isAdmin, $issued['expiresAt'], $user->id);
+        $this->sessions->record($issued['jti'], $user->companyId, $user->isAdmin, $issued['expiresAt'], $user->id);
 
         return $this->json($response, 200, [
             'token' => $issued['token'],
@@ -161,7 +183,7 @@ final class RefreshAction
      * stdClass after JWT decode) into the shape issuePrincipal expects.
      *
      * @param array<int,mixed> $raw
-     * @return list<array{id:int, permissions:list<string>}>
+     * @return list<array{id:int, permissions:list<string>, admin:bool}>
      */
     private function normaliseCompanies(array $raw): array
     {
@@ -175,7 +197,16 @@ final class RefreshAction
             $perms = isset($e['permissions']) && is_array($e['permissions'])
                 ? array_values(array_map('strval', $e['permissions']))
                 : [];
-            $out[] = ['id' => $id, 'permissions' => $perms];
+            $out[] = [
+                'id' => $id,
+                'permissions' => $perms,
+                // Carry the company-admin flag forward. Dropping it here would
+                // quietly demote a company admin at their first hourly refresh
+                // — they would keep working right up until the token rotated,
+                // then start getting 403s from /company/* with nothing having
+                // changed.
+                'admin' => (bool) ($e['admin'] ?? false),
+            ];
         }
         return $out;
     }

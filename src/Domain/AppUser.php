@@ -5,8 +5,8 @@ namespace Tds\AuthApi\Domain;
 
 /**
  * A login identity. Spans both panels: `isAdmin` grants admin-panel access; a
- * non-null `customerId` ties the account to a company (tenant), scoped by
- * `permissions`. Multiple users may share one `customerId`.
+ * non-null `companyId` ties the account to a company (Firma), scoped by
+ * `permissions`. Multiple users may share one `companyId`.
  *
  * `passwordHash` is loaded for verification but never serialized — use
  * {@see self::toPublicArray()} for API output.
@@ -22,8 +22,8 @@ final class AppUser
         public readonly string $email,
         public readonly ?string $name,
         public readonly bool $isAdmin,
-        /** @deprecated primary membership's company — read `$memberships`. */
-        public readonly ?int $customerId,
+        /** @deprecated denormalised primary membership — read `$memberships`. */
+        public readonly ?int $companyId,
         /** @deprecated primary membership's permissions — read `$memberships`. */
         public readonly array $permissions,
         public readonly string $status,
@@ -91,7 +91,10 @@ final class AppUser
             'avatarUrl' => $this->avatarUrl,
             'bio' => $this->bio,
             'memberships' => array_map(static fn (Membership $m): array => $m->toArray(), $this->memberships),
-            'customerId' => $this->customerId,
+            'companyId' => $this->companyId,
+            // Deprecated alias, emitted for one release so a client built
+            // against the old name keeps rendering. Dropped in the follow-up.
+            'customerId' => $this->companyId,
             'permissions' => $this->permissions,
             'status' => $this->status,
             'mustChangePassword' => $this->mustChangePassword,

@@ -53,7 +53,7 @@ final class LoginActionTest extends TestCase
         string $email,
         string $password,
         bool $isAdmin = false,
-        ?int $customerId = 7,
+        ?int $companyId = 7,
         array $permissions = ['invoices:read'],
         string $status = 'active',
     ): int {
@@ -62,7 +62,7 @@ final class LoginActionTest extends TestCase
             password_hash($password, PASSWORD_ARGON2ID),
             null,
             $isAdmin,
-            $customerId,
+            $companyId,
             $permissions,
             $status,
         );
@@ -118,7 +118,7 @@ final class LoginActionTest extends TestCase
 
     public function test_admin_login_reports_is_admin_and_empty_permissions(): void
     {
-        $this->seed('admin@example.com', 'correct-horse-battery', isAdmin: true, customerId: null, permissions: []);
+        $this->seed('admin@example.com', 'correct-horse-battery', isAdmin: true, companyId: null, permissions: []);
 
         $response = $this->login(['email' => 'admin@example.com', 'password' => 'correct-horse-battery']);
 
@@ -130,7 +130,7 @@ final class LoginActionTest extends TestCase
 
     public function test_login_reports_must_change_password_flag(): void
     {
-        $id = $this->seed('admin@example.com', 'temp-setup-pass', isAdmin: true, customerId: null, permissions: []);
+        $id = $this->seed('admin@example.com', 'temp-setup-pass', isAdmin: true, companyId: null, permissions: []);
         $this->users->update($id, ['must_change_password' => true]);
 
         $response = $this->login(['email' => 'admin@example.com', 'password' => 'temp-setup-pass']);

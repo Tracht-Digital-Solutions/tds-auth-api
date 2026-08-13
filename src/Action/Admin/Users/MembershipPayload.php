@@ -6,17 +6,24 @@ namespace Tds\AuthApi\Action\Admin\Users;
 use Tds\AuthApi\Domain\Permissions;
 
 /**
- * Resolves the company memberships from a user create/update payload. Accepts
- * the new `memberships: [{customerId, permissions}]` shape and falls back to the
- * legacy single-company `customerId` + `permissions` pair. `memberships` wins
- * when both appear. Entries with a non-positive customerId are dropped; unknown
- * permission keys are sanitised out.
+ * Resolves the company memberships from a user create/update payload.
+ *
+ * Accepts `memberships: [{companyId, permissions, groupIds, isCompanyAdmin,
+ * permissionCeiling}]` and falls back to the legacy single-company
+ * `companyId` + `permissions` pair; `memberships` wins when both appear.
+ * `customerId` is still read as an alias of `companyId` for one release.
+ *
+ * Entries with a non-positive company id are dropped, and permission keys are
+ * validated by shape (see {@see Permissions::sanitize()}).
  */
 final class MembershipPayload
 {
     /**
      * @param array<string,mixed> $body
-     * @return list<array{customerId:int, permissions:list<string>}>
+     * @return list<array{
+     *   companyId:int, permissions:list<string>, groupIds:list<int>,
+     *   isCompanyAdmin:bool, permissionCeiling:list<string>|null
+     * }>
      */
     public static function resolve(array $body): array
     {
@@ -26,42 +33,81 @@ final class MembershipPayload
                 if (!is_array($m)) {
                     continue;
                 }
-                $cid = (int) ($m['customerId'] ?? 0);
+                $cid = (int) ($m['companyId'] ?? $m['customerId'] ?? 0);
                 if ($cid <= 0) {
                     continue;
                 }
                 $out[] = [
-                    'customerId' => $cid,
+                    'companyId' => $cid,
                     'permissions' => Permissions::sanitize($m['permissions'] ?? []),
+                    'groupIds' => self::ids($m['groupIds'] ?? []),
+                    'isCompanyAdmin' => (bool) ($m['isCompanyAdmin'] ?? false),
+                    // Absent and null are both "no per-user ceiling"; an empty
+                    // array is the different, deliberate "may hold nothing".
+                    'permissionCeiling' => array_key_exists('permissionCeiling', $m)
+                        && $m['permissionCeiling'] !== null
+                        ? Permissions::sanitize($m['permissionCeiling'])
+                        : null,
                 ];
             }
             return $out;
         }
 
         // Legacy single-company fallback.
-        $cid = null;
-        if (isset($body['customerId']) && $body['customerId'] !== null && $body['customerId'] !== '') {
-            $cid = (int) $body['customerId'];
-        }
-        if ($cid === null || $cid <= 0) {
+        $raw = $body['companyId'] ?? $body['customerId'] ?? null;
+        if ($raw === null || $raw === '') {
             return [];
         }
+        $cid = (int) $raw;
+        if ($cid <= 0) {
+            return [];
+        }
+
         return [[
-            'customerId' => $cid,
+            'companyId' => $cid,
             'permissions' => Permissions::sanitize($body['permissions'] ?? []),
+            'groupIds' => [],
+            'isCompanyAdmin' => false,
+            'permissionCeiling' => null,
         ]];
     }
 
     /**
-     * Whether the payload carries any company assignment at all (so update can
-     * tell "no membership keys present" from "explicitly cleared to none").
+     * Whether the payload carries a company assignment at all — how an update
+     * tells "said nothing about memberships" from "explicitly cleared to none".
+     *
+     * **`permissions` alone does NOT count**, and that is the fix for a real
+     * data-loss bug: it used to, so a body carrying only `permissions` made
+     * this return true while {@see self::resolve()} returned `[]` — and the
+     * caller dutifully replaced every membership with nothing. A payload that
+     * never mentions a company must not be able to remove the user from all of
+     * them.
      *
      * @param array<string,mixed> $body
      */
     public static function present(array $body): bool
     {
         return array_key_exists('memberships', $body)
-            || array_key_exists('customerId', $body)
-            || array_key_exists('permissions', $body);
+            || array_key_exists('companyId', $body)
+            || array_key_exists('customerId', $body);
+    }
+
+    /**
+     * @param mixed $raw
+     * @return list<int>
+     */
+    private static function ids(mixed $raw): array
+    {
+        if (!is_array($raw)) {
+            return [];
+        }
+        $out = [];
+        foreach ($raw as $value) {
+            $id = (int) $value;
+            if ($id > 0 && !in_array($id, $out, true)) {
+                $out[] = $id;
+            }
+        }
+        return $out;
     }
 }

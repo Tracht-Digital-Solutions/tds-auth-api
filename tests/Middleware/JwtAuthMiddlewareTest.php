@@ -117,7 +117,7 @@ final class JwtAuthMiddlewareTest extends TestCase
             email: $admin ? 'admin@example.com' : 'cust@example.com',
             name: null,
             isAdmin: $admin,
-            customerId: $admin ? null : 7,
+            companyId: $admin ? null : 7,
             permissions: $admin ? [] : ['invoices:read'],
             status: 'active',
             passwordHash: 'x',

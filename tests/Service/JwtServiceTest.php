@@ -57,7 +57,7 @@ final class JwtServiceTest extends TestCase
             email: 'cust@example.com',
             name: 'Cust',
             isAdmin: false,
-            customerId: 7,
+            companyId: 7,
             permissions: ['invoices:read', 'invoices:pay'],
             status: 'active',
             passwordHash: 'x',
@@ -79,7 +79,7 @@ final class JwtServiceTest extends TestCase
             email: 'admin@example.com',
             name: 'Admin',
             isAdmin: true,
-            customerId: null,
+            companyId: null,
             permissions: ['invoices:pay'],
             status: 'active',
             passwordHash: 'x',
@@ -100,7 +100,7 @@ final class JwtServiceTest extends TestCase
             email: 'agent@example.com',
             name: 'Agent',
             isAdmin: true,
-            customerId: null,
+            companyId: null,
             permissions: [],
             status: 'active',
             passwordHash: 'x',
@@ -127,7 +127,7 @@ final class JwtServiceTest extends TestCase
             email: 'multi@example.com',
             name: 'Multi',
             isAdmin: false,
-            customerId: 3,
+            companyId: 3,
             permissions: ['tickets:read'],
             status: 'active',
             passwordHash: 'x',
@@ -151,7 +151,7 @@ final class JwtServiceTest extends TestCase
     public function test_admin_carries_no_companies(): void
     {
         $admin = new AppUser(
-            id: 1, email: 'a@example.com', name: 'A', isAdmin: true, customerId: null,
+            id: 1, email: 'a@example.com', name: 'A', isAdmin: true, companyId: null,
             permissions: [], status: 'active', passwordHash: 'x',
             memberships: [new \Tds\AuthApi\Domain\Membership(3, ['tickets:read'])],
         );

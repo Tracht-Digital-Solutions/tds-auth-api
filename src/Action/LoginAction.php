@@ -85,7 +85,7 @@ final class LoginAction
         }
 
         $issued = $this->jwt->issueForUser($user);
-        $this->sessions->record($issued['jti'], $user->customerId, $user->isAdmin, $issued['expiresAt'], $user->id);
+        $this->sessions->record($issued['jti'], $user->companyId, $user->isAdmin, $issued['expiresAt'], $user->id);
 
         $response = $this->json($response, 200, [
             'token' => $issued['token'],
@@ -98,7 +98,9 @@ final class LoginAction
             'companies' => $user->isAdmin
                 ? []
                 : array_map(static fn ($m) => $m->toArray(), $user->memberships),
-            'customerId' => $user->customerId,
+            'companyId' => $user->companyId,
+            // Deprecated alias, emitted for one release. Dropped in the follow-up.
+            'customerId' => $user->companyId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
             'mustChangePassword' => $user->mustChangePassword,
             'remembered' => $remember && !$user->mustChangePassword,

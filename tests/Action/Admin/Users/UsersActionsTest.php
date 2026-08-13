@@ -41,9 +41,11 @@ final class UsersActionsTest extends TestCase
         $body = $this->jsonBody($response);
         self::assertArrayHasKey('tempPassword', $body);
         self::assertSame('new@example.com', $body['user']['email']);
-        self::assertSame(4, $body['user']['customerId']);
-        // Unknown permission key was dropped.
-        self::assertSame(['invoices:read'], $body['user']['permissions']);
+        self::assertSame(4, $body['user']['companyId']);
+        // Kept, not dropped: validation is the SHAPE of a key now. The old
+        // catalog intersection is what silently discarded every composed
+        // extension's permission on its way into the database.
+        self::assertSame(['invoices:read', 'invoices:delete'], $body['user']['permissions']);
     }
 
     public function test_create_with_provided_password_omits_temp(): void

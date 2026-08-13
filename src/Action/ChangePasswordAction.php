@@ -101,7 +101,7 @@ final class ChangePasswordAction
         // option too and simply opts in again at the next login.
         $this->remember->forgetAllForUser($user->id);
         $issued = $this->jwt->issueForUser($user);
-        $this->sessions->record($issued['jti'], $user->customerId, $user->isAdmin, $issued['expiresAt'], $user->id);
+        $this->sessions->record($issued['jti'], $user->companyId, $user->isAdmin, $issued['expiresAt'], $user->id);
 
         return $this->json($response, 200, [
             'token' => $issued['token'],

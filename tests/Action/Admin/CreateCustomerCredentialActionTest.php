@@ -72,7 +72,7 @@ final class CreateCustomerCredentialActionTest extends TestCase
         $user = $this->users->findByEmail('user@example.com');
         self::assertNotNull($user);
         self::assertFalse($user->isAdmin);
-        self::assertSame(5, $user->customerId);
+        self::assertSame(5, $user->companyId);
         // Default onboarding grants full portal access.
         self::assertContains('invoices:pay', $user->permissions);
     }

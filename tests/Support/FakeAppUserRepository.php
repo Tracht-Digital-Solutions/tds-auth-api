@@ -35,9 +35,9 @@ final class FakeAppUserRepository implements AppUserRepository
                 static fn (Membership $m): array => $m->toArray(),
                 $user->memberships,
             );
-        } elseif ($user->customerId !== null) {
+        } elseif ($user->companyId !== null) {
             $this->membershipRows[$user->id] = [
-                ['customerId' => $user->customerId, 'permissions' => $user->permissions],
+                ['companyId' => $user->companyId, 'permissions' => $user->permissions],
             ];
         }
         $this->users[$user->id] = $this->attach($user);
@@ -58,11 +58,21 @@ final class FakeAppUserRepository implements AppUserRepository
         return $this->users[$id] ?? null;
     }
 
-    public function list(?int $customerId = null): array
+    public function list(?int $companyId = null): array
     {
         $rows = array_values($this->users);
-        if ($customerId !== null) {
-            $rows = array_values(array_filter($rows, fn (AppUser $u) => $u->customerId === $customerId));
+        if ($companyId !== null) {
+            // Mirrors the PDO repo's JOIN: a user counts as being in a company
+            // when they hold a MEMBERSHIP of it, not when it happens to be
+            // their denormalised primary.
+            $rows = array_values(array_filter($rows, function (AppUser $u) use ($companyId): bool {
+                foreach ($this->membershipRows[$u->id] ?? [] as $row) {
+                    if (($row['companyId'] ?? null) === $companyId) {
+                        return true;
+                    }
+                }
+                return false;
+            }));
         }
         usort($rows, fn (AppUser $a, AppUser $b) => $b->id <=> $a->id);
         return $rows;
@@ -73,14 +83,14 @@ final class FakeAppUserRepository implements AppUserRepository
         string $passwordHash,
         ?string $name,
         bool $isAdmin,
-        ?int $customerId,
+        ?int $companyId,
         array $permissions,
         string $status = 'active',
     ): int {
         $id = $this->nextId++;
-        if ($customerId !== null) {
+        if ($companyId !== null) {
             $this->membershipRows[$id] = [
-                ['customerId' => $customerId, 'permissions' => Permissions::sanitize($permissions)],
+                ['companyId' => $companyId, 'permissions' => Permissions::sanitize($permissions)],
             ];
         }
         $this->users[$id] = $this->attach(new AppUser(
@@ -88,7 +98,7 @@ final class FakeAppUserRepository implements AppUserRepository
             email: $email,
             name: $name,
             isAdmin: $isAdmin,
-            customerId: $customerId,
+            companyId: $companyId,
             permissions: Permissions::sanitize($permissions),
             status: $status,
             passwordHash: $passwordHash,
@@ -121,7 +131,7 @@ final class FakeAppUserRepository implements AppUserRepository
             email: array_key_exists('email', $fields) ? (string) $fields['email'] : $u->email,
             name: array_key_exists('name', $fields) ? $nullable($fields['name']) : $u->name,
             isAdmin: array_key_exists('is_admin', $fields) ? (bool) $fields['is_admin'] : $u->isAdmin,
-            customerId: array_key_exists('customer_id', $fields) ? ($fields['customer_id'] !== null ? (int) $fields['customer_id'] : null) : $u->customerId,
+            companyId: array_key_exists('company_id', $fields) ? ($fields['company_id'] !== null ? (int) $fields['company_id'] : null) : $u->companyId,
             permissions: array_key_exists('permissions', $fields) ? Permissions::sanitize($fields['permissions']) : $u->permissions,
             status: array_key_exists('status', $fields) ? (string) $fields['status'] : $u->status,
             passwordHash: $u->passwordHash,
@@ -136,15 +146,23 @@ final class FakeAppUserRepository implements AppUserRepository
 
     public function setMemberships(int $userId, array $memberships): void
     {
-        $byCustomer = [];
+        $byCompany = [];
         foreach ($memberships as $m) {
-            $cid = (int) ($m['customerId'] ?? 0);
+            $cid = (int) ($m['companyId'] ?? $m['customerId'] ?? 0);
             if ($cid <= 0) {
                 continue;
             }
-            $byCustomer[$cid] = ['customerId' => $cid, 'permissions' => Permissions::sanitize($m['permissions'] ?? [])];
+            $byCompany[$cid] = [
+                'companyId' => $cid,
+                'permissions' => Permissions::sanitize($m['permissions'] ?? []),
+                'isCompanyAdmin' => (bool) ($m['isCompanyAdmin'] ?? false),
+                'groupIds' => array_map('intval', (array) ($m['groupIds'] ?? [])),
+                'permissionCeiling' => array_key_exists('permissionCeiling', $m) && $m['permissionCeiling'] !== null
+                    ? Permissions::sanitize($m['permissionCeiling'])
+                    : null,
+            ];
         }
-        $this->membershipRows[$userId] = array_values($byCustomer);
+        $this->membershipRows[$userId] = array_values($byCompany);
 
         $u = $this->users[$userId] ?? null;
         if ($u === null) {
@@ -156,7 +174,7 @@ final class FakeAppUserRepository implements AppUserRepository
             email: $u->email,
             name: $u->name,
             isAdmin: $u->isAdmin,
-            customerId: $primary['customerId'] ?? null,
+            companyId: $primary['companyId'] ?? null,
             permissions: $primary['permissions'] ?? [],
             status: $u->status,
             passwordHash: $u->passwordHash,
@@ -176,7 +194,7 @@ final class FakeAppUserRepository implements AppUserRepository
             email: $u->email,
             name: $u->name,
             isAdmin: $u->isAdmin,
-            customerId: $u->customerId,
+            companyId: $u->companyId,
             permissions: $u->permissions,
             status: $u->status,
             passwordHash: $passwordHash,
@@ -204,11 +222,86 @@ final class FakeAppUserRepository implements AppUserRepository
         return false;
     }
 
+    public function setCompanyMembership(
+        int $userId,
+        int $companyId,
+        array $permissions,
+        bool $isCompanyAdmin,
+        ?array $permissionCeiling = null,
+        bool $updateCeiling = false,
+    ): void {
+        // Single-row upsert: the user's OTHER companies survive. That is the
+        // property the company-scoped routes depend on, so the fake has to
+        // model it rather than replacing the whole set.
+        $rows = $this->membershipRows[$userId] ?? [];
+        $found = false;
+        foreach ($rows as $i => $row) {
+            if (($row['companyId'] ?? null) === $companyId) {
+                $rows[$i]['permissions'] = Permissions::sanitize($permissions);
+                $rows[$i]['isCompanyAdmin'] = $isCompanyAdmin;
+                if ($updateCeiling) {
+                    $rows[$i]['permissionCeiling'] = $permissionCeiling;
+                }
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            $rows[] = [
+                'companyId' => $companyId,
+                'permissions' => Permissions::sanitize($permissions),
+                'isCompanyAdmin' => $isCompanyAdmin,
+                'groupIds' => [],
+                'permissionCeiling' => $updateCeiling ? $permissionCeiling : null,
+            ];
+        }
+        $this->membershipRows[$userId] = array_values($rows);
+
+        if (isset($this->users[$userId])) {
+            $this->users[$userId] = $this->attach($this->users[$userId]);
+        }
+    }
+
+    public function removeCompanyMembership(int $userId, int $companyId): bool
+    {
+        $before = count($this->membershipRows[$userId] ?? []);
+        $this->membershipRows[$userId] = array_values(array_filter(
+            $this->membershipRows[$userId] ?? [],
+            static fn (array $r): bool => ($r['companyId'] ?? null) !== $companyId,
+        ));
+
+        if (isset($this->users[$userId])) {
+            $this->users[$userId] = $this->attach($this->users[$userId]);
+        }
+
+        return $before !== count($this->membershipRows[$userId]);
+    }
+
+    public function companyAdminCount(int $companyId): int
+    {
+        $count = 0;
+        foreach ($this->membershipRows as $rows) {
+            foreach ($rows as $row) {
+                if (($row['companyId'] ?? null) === $companyId && ($row['isCompanyAdmin'] ?? false)) {
+                    $count++;
+                }
+            }
+        }
+
+        return $count;
+    }
+
     /** Return a copy of $u with its current membership rows attached. */
     private function attach(AppUser $u): AppUser
     {
         $memberships = array_map(
-            static fn (array $r): Membership => new Membership($r['customerId'], $r['permissions']),
+            static fn (array $r): Membership => new Membership(
+                $r['companyId'],
+                $r['permissions'],
+                (bool) ($r['isCompanyAdmin'] ?? false),
+                array_map('intval', (array) ($r['groupIds'] ?? [])),
+                $r['permissionCeiling'] ?? null,
+            ),
             $this->membershipRows[$u->id] ?? [],
         );
         return new AppUser(
@@ -216,7 +309,7 @@ final class FakeAppUserRepository implements AppUserRepository
             email: $u->email,
             name: $u->name,
             isAdmin: $u->isAdmin,
-            customerId: $u->customerId,
+            companyId: $u->companyId,
             permissions: $u->permissions,
             status: $u->status,
             passwordHash: $u->passwordHash,

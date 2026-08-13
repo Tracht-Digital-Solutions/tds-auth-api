@@ -33,6 +33,12 @@ final class PdoAppUserRepositoryTest extends TestCase
         );
 
         $this->pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+        $this->pdo->exec('DROP TABLE IF EXISTS app_user_company');
+        // The PRE-RENAME name too. A database left over from a run before the
+        // rename still holds `app_user_customer` — and with it the FK named
+        // `fk_auc_user`, which is schema-global in InnoDB, so creating the new
+        // table fails with a bare "errno: 121 Duplicate key" that says nothing
+        // about the real cause.
         $this->pdo->exec('DROP TABLE IF EXISTS app_user_customer');
         $this->pdo->exec('DROP TABLE IF EXISTS app_user');
         $this->pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -48,7 +54,7 @@ final class PdoAppUserRepositoryTest extends TestCase
               is_admin TINYINT(1) NOT NULL DEFAULT 0,
               is_support_agent TINYINT(1) NOT NULL DEFAULT 0,
               is_blog_author TINYINT(1) NOT NULL DEFAULT 0,
-              customer_id INT UNSIGNED NULL,
+              company_id INT UNSIGNED NULL,
               permissions TEXT NOT NULL,
               status VARCHAR(20) NOT NULL DEFAULT 'active',
               must_change_password TINYINT(1) NOT NULL DEFAULT 0,
@@ -59,14 +65,16 @@ final class PdoAppUserRepositoryTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         SQL);
         $this->pdo->exec(<<<'SQL'
-            CREATE TABLE app_user_customer (
+            CREATE TABLE app_user_company (
               id INT UNSIGNED NOT NULL AUTO_INCREMENT,
               user_id INT UNSIGNED NOT NULL,
-              customer_id INT UNSIGNED NOT NULL,
+              company_id INT UNSIGNED NOT NULL,
+              is_company_admin TINYINT(1) NOT NULL DEFAULT 0,
+              permission_ceiling TEXT NULL,
               permissions TEXT NOT NULL,
               created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
               PRIMARY KEY (id),
-              UNIQUE KEY uniq_user_customer (user_id, customer_id),
+              UNIQUE KEY uniq_user_customer (user_id, company_id),
               KEY idx_user (user_id),
               CONSTRAINT fk_auc_user FOREIGN KEY (user_id) REFERENCES app_user (id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -82,9 +90,9 @@ final class PdoAppUserRepositoryTest extends TestCase
         $user = $this->repo->findById($id);
         self::assertNotNull($user);
         self::assertCount(1, $user->memberships);
-        self::assertSame(7, $user->memberships[0]->customerId);
+        self::assertSame(7, $user->memberships[0]->companyId);
         self::assertSame(['invoices:read'], $user->memberships[0]->permissions);
-        self::assertSame(7, $user->customerId);
+        self::assertSame(7, $user->companyId);
     }
 
     public function test_create_admin_without_customer_has_no_membership(): void
@@ -94,7 +102,7 @@ final class PdoAppUserRepositoryTest extends TestCase
         $user = $this->repo->findById($id);
         self::assertNotNull($user);
         self::assertSame([], $user->memberships);
-        self::assertNull($user->customerId);
+        self::assertNull($user->companyId);
     }
 
     public function test_set_memberships_replaces_and_syncs_primary(): void
@@ -102,31 +110,101 @@ final class PdoAppUserRepositoryTest extends TestCase
         $id = $this->repo->create('multi@example.com', 'hash', 'Multi', false, 1, ['tickets:read'], 'active');
 
         $this->repo->setMemberships($id, [
-            ['customerId' => 3, 'permissions' => ['tickets:read', 'tickets:write']],
-            ['customerId' => 5, 'permissions' => ['invoices:read']],
+            ['companyId' => 3, 'permissions' => ['tickets:read', 'tickets:write']],
+            ['companyId' => 5, 'permissions' => ['invoices:read']],
         ]);
 
         $user = $this->repo->findById($id);
         self::assertNotNull($user);
         self::assertCount(2, $user->memberships);
         // Primary columns follow the first membership.
-        self::assertSame(3, $user->customerId);
+        self::assertSame(3, $user->companyId);
         self::assertSame(['tickets:read', 'tickets:write'], $user->permissions);
         // The old company-1 membership is gone.
-        $cids = array_map(fn ($m) => $m->customerId, $user->memberships);
+        $cids = array_map(fn ($m) => $m->companyId, $user->memberships);
         self::assertSame([3, 5], $cids);
     }
 
-    public function test_set_memberships_sanitises_unknown_permissions(): void
+    public function test_set_memberships_keeps_an_extension_permission(): void
     {
+        // Reversed with the catalog intersection: an extension's key is stored
+        // and read back as-is. The old behaviour dropped it on write AND on
+        // read, so an admin ticked a box, saw it save, and the user never got
+        // the right.
         $id = $this->repo->create('s@example.com', 'hash', null, false, 2, [], 'active');
 
         $this->repo->setMemberships($id, [
-            ['customerId' => 2, 'permissions' => ['invoices:read', 'invoices:delete']],
+            ['companyId' => 2, 'permissions' => ['invoices:read', 'companies:write']],
         ]);
 
         $user = $this->repo->findById($id);
-        self::assertSame(['invoices:read'], $user?->memberships[0]->permissions);
+        self::assertSame(['invoices:read', 'companies:write'], $user?->memberships[0]->permissions);
+    }
+
+    public function test_set_company_membership_leaves_other_companies_alone(): void
+    {
+        // The property every `/company/*` route depends on: a company admin
+        // editing their own company must not be able to drop the user out of
+        // another one with a payload that never mentioned it.
+        $id = $this->repo->create('multi@example.com', 'hash', null, false, null, [], 'active');
+        $this->repo->setMemberships($id, [
+            ['companyId' => 3, 'permissions' => ['tickets:read']],
+            ['companyId' => 5, 'permissions' => ['invoices:read']],
+        ]);
+
+        $this->repo->setCompanyMembership($id, 3, ['tickets:write'], true);
+
+        $user = $this->repo->findById($id);
+        self::assertSame([3, 5], array_map(fn ($m) => $m->companyId, $user?->memberships ?? []));
+        self::assertSame(['tickets:write'], $user?->memberships[0]->permissions);
+        self::assertTrue($user?->memberships[0]->isCompanyAdmin);
+        // Untouched.
+        self::assertSame(['invoices:read'], $user?->memberships[1]->permissions);
+        self::assertFalse($user?->memberships[1]->isCompanyAdmin);
+    }
+
+    public function test_remove_company_membership_never_deletes_the_account(): void
+    {
+        $id = $this->repo->create('multi@example.com', 'hash', null, false, null, [], 'active');
+        $this->repo->setMemberships($id, [
+            ['companyId' => 3, 'permissions' => []],
+            ['companyId' => 5, 'permissions' => []],
+        ]);
+
+        self::assertTrue($this->repo->removeCompanyMembership($id, 3));
+
+        $user = $this->repo->findById($id);
+        self::assertNotNull($user, 'the login survives losing a company');
+        self::assertSame([5], array_map(fn ($m) => $m->companyId, $user->memberships));
+    }
+
+    public function test_company_admin_count_counts_only_that_company(): void
+    {
+        $a = $this->repo->create('a@example.com', 'hash', null, false, null, [], 'active');
+        $b = $this->repo->create('b@example.com', 'hash', null, false, null, [], 'active');
+        $this->repo->setCompanyMembership($a, 3, [], true);
+        $this->repo->setCompanyMembership($b, 3, [], false);
+        $this->repo->setCompanyMembership($b, 5, [], true);
+
+        self::assertSame(1, $this->repo->companyAdminCount(3));
+        self::assertSame(1, $this->repo->companyAdminCount(5));
+        self::assertSame(0, $this->repo->companyAdminCount(9));
+    }
+
+    public function test_list_filters_by_MEMBERSHIP_not_the_primary_column(): void
+    {
+        // The bug this replaces: the filter compared `app_user.company_id`,
+        // the denormalised primary, so a user whose SECOND company was the one
+        // asked about simply did not appear — the filter under-reported exactly
+        // the multi-company case the model exists to support.
+        $id = $this->repo->create('second@example.com', 'hash', null, false, null, [], 'active');
+        $this->repo->setMemberships($id, [
+            ['companyId' => 3, 'permissions' => []],
+            ['companyId' => 5, 'permissions' => []],
+        ]);
+
+        $ids = array_map(fn ($u) => $u->id, $this->repo->list(5));
+        self::assertContains($id, $ids);
     }
 
     public function test_set_memberships_to_empty_clears_primary(): void
@@ -137,6 +215,6 @@ final class PdoAppUserRepositoryTest extends TestCase
 
         $user = $this->repo->findById($id);
         self::assertSame([], $user?->memberships);
-        self::assertNull($user?->customerId);
+        self::assertNull($user?->companyId);
     }
 }
