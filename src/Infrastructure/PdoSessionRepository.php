@@ -12,18 +12,26 @@ final class PdoSessionRepository implements SessionRepository
     {
     }
 
-    public function record(string $jti, ?int $customerId, bool $admin, int $expiresAtUnix, ?int $userId = null): void
+    public function record(string $jti, ?int $companyId, bool $admin, int $expiresAtUnix, ?int $userId = null): void
     {
         $stmt = $this->pdo->prepare(
+            // `company_id`, not `customer_id` — migration 20260814000001 renamed
+            // the column. This statement kept the old name and so threw
+            // "Unknown column 'customer_id'" on EVERY successful login, while a
+            // wrong password still returned a clean 401 because it never got
+            // this far. That asymmetry is the whole signature of the bug: the
+            // login form reported "E-Mail oder Passwort falsch" correctly and
+            // answered a CORRECT password with a 500.
+            //
             // NOW(6), not NOW(): the column is DATETIME(6) so that listActive()
             // can order by real recency. NOW() would write `.000000` on every
             // row and silently reinstate the same-second tie this fixed.
-            "INSERT INTO session (jti, customer_id, user_id, admin, expires_at, created_at) "
+            "INSERT INTO session (jti, company_id, user_id, admin, expires_at, created_at) "
             . "VALUES (:jti, :cid, :uid, :admin, FROM_UNIXTIME(:exp), NOW(6))"
         );
         $stmt->execute([
             'jti' => $jti,
-            'cid' => $customerId,
+            'cid' => $companyId,
             'uid' => $userId,
             'admin' => $admin ? 1 : 0,
             'exp' => $expiresAtUnix,
@@ -62,7 +70,7 @@ final class PdoSessionRepository implements SessionRepository
     public function listActive(int $limit = 200): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT jti, customer_id, admin, expires_at, created_at '
+            'SELECT jti, company_id, admin, expires_at, created_at '
             . 'FROM session '
             . 'WHERE revoked_at IS NULL AND expires_at > NOW() '
             // created_at is DATETIME(6) and written with NOW(6), so this really
@@ -83,7 +91,7 @@ final class PdoSessionRepository implements SessionRepository
     public function listActiveForUser(int $userId, int $limit = 50): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT jti, customer_id, admin, expires_at, created_at '
+            'SELECT jti, company_id, admin, expires_at, created_at '
             . 'FROM session '
             . 'WHERE user_id = :uid AND revoked_at IS NULL AND expires_at > NOW() '
             // Same total ordering as listActive(): DATETIME(6) first, jti only
@@ -118,17 +126,29 @@ final class PdoSessionRepository implements SessionRepository
     }
 
     /**
+     * `GET /admin/sessions` writes these rows to the wire verbatim, so the keys
+     * here are public API. The column is `company_id` now, and both spellings
+     * are emitted for one release — the same dual-accept the rename uses for
+     * the JWT claim and the act-as header, for the same reason: readers of this
+     * payload do not all deploy at the same instant.
+     *
      * @param list<array<string,mixed>> $rows
-     * @return list<array{jti: string, customer_id: ?int, admin: bool, expires_at: string, created_at: string}>
+     * @return list<array{jti: string, company_id: ?int, customer_id: ?int, admin: bool, expires_at: string, created_at: string}>
      */
     private static function mapRows(array $rows): array
     {
-        return array_map(static fn (array $r) => [
-            'jti' => (string) $r['jti'],
-            'customer_id' => $r['customer_id'] !== null ? (int) $r['customer_id'] : null,
-            'admin' => (bool) $r['admin'],
-            'expires_at' => (string) $r['expires_at'],
-            'created_at' => (string) $r['created_at'],
-        ], $rows);
+        return array_map(static function (array $r): array {
+            $companyId = $r['company_id'] !== null ? (int) $r['company_id'] : null;
+
+            return [
+                'jti' => (string) $r['jti'],
+                'company_id' => $companyId,
+                // Deprecated alias of `company_id`, emitted for ONE release.
+                'customer_id' => $companyId,
+                'admin' => (bool) $r['admin'],
+                'expires_at' => (string) $r['expires_at'],
+                'created_at' => (string) $r['created_at'],
+            ];
+        }, $rows);
     }
 }

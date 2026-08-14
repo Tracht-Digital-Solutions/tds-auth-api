@@ -28,6 +28,10 @@ root. The build model is dev/release (see README): a push to `main` auto-assembl
 > **`company_id`**, and the Firmen extension's rights `customers:*` →
 > **`companies:*`**.
 >
+> **`session.customer_id` was renamed too, and the repository did not follow —
+> which broke every login until 0.7.2.** See *A DB test that writes its own DDL
+> only ever tests itself* below before renaming anything else.
+>
 > **Both spellings are still accepted for ONE release** — the `customer_id`
 > JWT claim is still emitted, `PermissionAliases` normalises the old permission
 > ids on read, and `?customer_id=` / `customerId` are still read in payloads.
@@ -552,6 +556,46 @@ the identical schema. Never change a released migration's *version*.
 > OPENSSL_CONF="$(ls -d ~/AppData/Local/Microsoft/WinGet/Packages/PHP.PHP.8.3*/extras/ssl/openssl.cnf)" \
 >   vendor/bin/phpunit
 > ```
+
+## A DB test that writes its own DDL only ever tests itself (0.7.2)
+
+Migration 20260814000001 renamed `session.customer_id` to `company_id`.
+`PdoSessionRepository` kept writing the old name in three statements, so:
+
+```
+SQLSTATE[42S22] 1054 Unknown column 'customer_id' in 'field list'
+```
+
+**Every successful login returned 500** — `POST /login` records the jti right
+after the password check — while a *wrong* password still returned a clean 401,
+because it returns before a session is ever recorded. That asymmetry is the
+whole signature: the login form rejected bad credentials correctly and answered
+correct ones with a server error, which reads like a password problem and is
+not one. `GET /me/sessions` and `GET /admin/sessions` were dead the same way.
+
+**Why the suite was green.** Not a skipped test: the DB-backed tests DO run in
+CI against a real MariaDB. `PdoSessionRepositoryTest` builds its own `session`
+table with hand-written DDL, and that DDL still said `customer_id` — so it
+created the pre-rename schema, asserted against it, and passed. The suite was
+testing a table that exists nowhere else. (`tds-content-api` has the same trap
+recorded for its blog-post repository; the lesson did not travel.)
+
+Two guards, deliberately both:
+
+| Guard | Where | Catches |
+|---|---|---|
+| `tests/Support/RenamedColumnSqlTest` | this repo's suite, **no DB needed** | any SQL literal naming a retired identifier |
+| the `setUp()` comment in `PdoSessionRepositoryTest` | that suite | the hand-written DDL drifting from the migrations again |
+
+`RenamedColumnSqlTest` inspects **only string literals that are themselves SQL**
+(they carry a `SELECT`/`INSERT`/`FROM`/… keyword). That precision is the point:
+`customer_id` legitimately survives elsewhere as the deprecated JWT claim, the
+`?customer_id=` query alias and the `customer_credential` table, none of which
+it may flag. Add to its `RETIRED` map whenever a migration renames something.
+
+**When you rename a column, grep the repositories in the same change.** The
+migration is the easy half; the SQL that reads and writes it is in another file
+and no tool connects the two.
 
 ## Don't
 
