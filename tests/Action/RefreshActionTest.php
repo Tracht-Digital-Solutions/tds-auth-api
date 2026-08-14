@@ -12,7 +12,10 @@ use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\RememberCookieFactory;
 use Tds\AuthApi\Service\RememberTokenService;
+use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
+use Tds\AuthApi\Tests\Support\FakeCompanyPolicyRepository;
+use Tds\AuthApi\Tests\Support\FakeGroupRepository;
 use Tds\AuthApi\Tests\Support\FakeRememberTokenRepository;
 use Tds\AuthApi\Tests\Support\FakeSessionRepository;
 use Tds\AuthApi\Tests\Support\Keys;
@@ -26,6 +29,9 @@ final class RefreshActionTest extends TestCase
     private FakeRememberTokenRepository $rememberRepo;
     private RememberTokenService $remember;
     private RememberCookieFactory $rememberCookies;
+    private FakeGroupRepository $groups;
+    private FakeCompanyPolicyRepository $policies;
+    private PermissionResolver $permissions;
 
     protected function setUp(): void
     {
@@ -41,6 +47,12 @@ final class RefreshActionTest extends TestCase
         $this->sessions = new FakeSessionRepository();
         $this->cookies = new CookieFactory('tds_session', '.local', secure: false);
         $this->users = new FakeAppUserRepository();
+        // The resolver is what turns stored rows into what a token may claim.
+        // Wiring it here is deliberate: it was registered and injected NOWHERE
+        // for a release, so groups granted nothing — and no test noticed.
+        $this->groups = new FakeGroupRepository();
+        $this->policies = new FakeCompanyPolicyRepository();
+        $this->permissions = new PermissionResolver($this->groups, $this->policies);
         $this->rememberRepo = new FakeRememberTokenRepository();
         $this->remember = new RememberTokenService($this->rememberRepo, 2592000);
         $this->rememberCookies = new RememberCookieFactory(new CookieFactory('tds_remember', '.local', secure: false));
@@ -164,7 +176,7 @@ final class RefreshActionTest extends TestCase
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/refresh')
             ->withCookieParams(['tds_session' => $issued['token']]);
-        $response = (new RefreshAction($this->jwt, $this->sessions, $this->cookies, $this->users, $this->remember, $this->rememberCookies))($request, new Response());
+        $response = (new RefreshAction($this->jwt, $this->sessions, $this->cookies, $this->users, $this->remember, $this->rememberCookies, $this->permissions))($request, new Response());
 
         self::assertSame(200, $response->getStatusCode());
     }
@@ -175,7 +187,7 @@ final class RefreshActionTest extends TestCase
         if ($bearer !== null) {
             $request = $request->withHeader('Authorization', 'Bearer ' . $bearer);
         }
-        return (new RefreshAction($this->jwt, $this->sessions, $this->cookies, $this->users, $this->remember, $this->rememberCookies))($request, new Response());
+        return (new RefreshAction($this->jwt, $this->sessions, $this->cookies, $this->users, $this->remember, $this->rememberCookies, $this->permissions))($request, new Response());
     }
 
     /** @return array<string,mixed> */

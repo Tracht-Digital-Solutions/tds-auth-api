@@ -7,6 +7,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
 use Tds\AuthApi\Service\AppUserRepository;
+use Tds\AuthApi\Service\CompanyPolicyRepository;
 use Tds\AuthApi\Service\PasswordGenerator;
 
 /**
@@ -29,6 +30,7 @@ final class CreateUserAction
     public function __construct(
         private readonly AppUserRepository $users,
         private readonly PasswordGenerator $passwords,
+        private readonly CompanyPolicyRepository $policies,
     ) {
     }
 
@@ -63,6 +65,19 @@ final class CreateUserAction
 
         // Company memberships (new `memberships` shape or legacy customerId+permissions).
         $memberships = MembershipPayload::resolve($body);
+
+        // Same refusal as the update path: company administration is a
+        // per-company grant, and storing the flag for a company that does not
+        // have it would save cleanly and do nothing.
+        foreach ($memberships as $m) {
+            if ($m['isCompanyAdmin'] && !$this->policies->get($m['companyId'])->allowCompanyAdmins) {
+                return $this->json($response, 422, [
+                    'error' => 'Company administration is not enabled for this company',
+                    'code' => 'delegation_disabled',
+                    'companyId' => $m['companyId'],
+                ]);
+            }
+        }
 
         $status = (string) ($body['status'] ?? 'active');
         if (!in_array($status, ['active', 'disabled'], true)) {

@@ -150,7 +150,11 @@ final class Bootstrap
         $container->set(GroupRepository::class, fn (Container $c) => new PdoGroupRepository($c->get(PDO::class)));
         $container->set(CompanyPolicyRepository::class, fn (Container $c) => new PdoCompanyPolicyRepository($c->get(PDO::class)));
 
-        // Direct grants ∪ groups ∩ ceiling — what a token actually carries.
+        // (direct ∪ groups) \ denies ∩ ceiling, plus the company's delegation
+        // grant folded into the admin flag — what a token and /me may claim.
+        // PHP-DI autowires it into the four issuers and MeAction; it was
+        // registered here and injected NOWHERE for a release, which is how
+        // groups came to grant nothing at all.
         $container->set(PermissionResolver::class, fn (Container $c) => new PermissionResolver(
             $c->get(GroupRepository::class),
             $c->get(CompanyPolicyRepository::class),
@@ -285,7 +289,7 @@ final class Bootstrap
         // Slim middleware is LIFO — the LAST `add()` runs FIRST — so the JWT
         // gate is added last and CompanyAdminMiddleware sees the claims it
         // attached.
-        $companyAdmin = new CompanyAdminMiddleware();
+        $companyAdmin = new CompanyAdminMiddleware($container->get(CompanyPolicyRepository::class));
 
         $app->group('/company/{companyId:[0-9]+}', function (RouteCollectorProxy $group): void {
             $group->get('/users', ListCompanyUsersAction::class);

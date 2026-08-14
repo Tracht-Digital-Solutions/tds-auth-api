@@ -10,17 +10,29 @@ use Slim\Psr7\Response;
 use Tds\AuthApi\Action\MeAction;
 use Tds\AuthApi\Domain\AppUser;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
+use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
+use Tds\AuthApi\Tests\Support\FakeCompanyPolicyRepository;
+use Tds\AuthApi\Tests\Support\FakeGroupRepository;
 use Tds\AuthApi\Tests\Support\FakeAvatarRepository;
 
 final class MeActionTest extends TestCase
 {
     private FakeAppUserRepository $users;
     private FakeAvatarRepository $avatars;
+    private FakeGroupRepository $groups;
+    private FakeCompanyPolicyRepository $policies;
+    private PermissionResolver $permissions;
 
     protected function setUp(): void
     {
         $this->users = new FakeAppUserRepository();
+        // The resolver is what turns stored rows into what a token may claim.
+        // Wiring it here is deliberate: it was registered and injected NOWHERE
+        // for a release, so groups granted nothing — and no test noticed.
+        $this->groups = new FakeGroupRepository();
+        $this->policies = new FakeCompanyPolicyRepository();
+        $this->permissions = new PermissionResolver($this->groups, $this->policies);
         $this->avatars = new FakeAvatarRepository();
     }
 
@@ -100,7 +112,7 @@ final class MeActionTest extends TestCase
         $request = (new ServerRequestFactory())
             ->createServerRequest('GET', '/me')
             ->withAttribute(JwtAuthMiddleware::ATTR_CLAIMS, $claims);
-        return (new MeAction($this->users, $this->avatars))($request, new Response());
+        return (new MeAction($this->users, $this->avatars, $this->permissions))($request, new Response());
     }
 
     /** @return array<string,mixed> */

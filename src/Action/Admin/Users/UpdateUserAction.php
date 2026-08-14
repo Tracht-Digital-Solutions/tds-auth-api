@@ -8,6 +8,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Service\AppUserRepository;
+use Tds\AuthApi\Service\CompanyPolicyRepository;
 use Tds\AuthApi\Service\SessionRepository;
 
 /**
@@ -30,7 +31,33 @@ final class UpdateUserAction
     public function __construct(
         private readonly AppUserRepository $users,
         private readonly SessionRepository $sessions,
+        private readonly CompanyPolicyRepository $policies,
     ) {
+    }
+
+    /**
+     * The first membership that asks for a company admin the company may not
+     * have, as an error payload — or null when every one of them is fine.
+     *
+     * @param list<array{companyId:int, isCompanyAdmin:bool}> $memberships
+     * @return array<string,mixed>|null
+     */
+    private function delegationDenied(array $memberships): ?array
+    {
+        foreach ($memberships as $m) {
+            if (!$m['isCompanyAdmin']) {
+                continue;
+            }
+            if (!$this->policies->get($m['companyId'])->allowCompanyAdmins) {
+                return [
+                    'error' => 'Company administration is not enabled for this company',
+                    'code' => 'delegation_disabled',
+                    'companyId' => $m['companyId'],
+                ];
+            }
+        }
+
+        return null;
     }
 
     /** @param array<string,string> $args */
@@ -106,6 +133,15 @@ final class UpdateUserAction
         // syncs the legacy customer_id/permissions columns), not as plain fields.
         $membershipsPresent = MembershipPayload::present($body);
         $memberships = $membershipsPresent ? MembershipPayload::resolve($body) : [];
+
+        // Company administration is a per-company grant. Storing the flag for a
+        // company that has not been switched on would save cleanly and do
+        // nothing — the resolver folds it away and the middleware refuses the
+        // route — so it is refused here instead, naming the fix. This service
+        // does not do stored-but-inert.
+        if (($deny = $this->delegationDenied($memberships)) !== null) {
+            return $this->json($response, 422, $deny);
+        }
 
         if (array_key_exists('status', $body)) {
             $status = (string) $body['status'];

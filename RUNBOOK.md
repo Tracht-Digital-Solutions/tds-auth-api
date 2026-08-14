@@ -2,7 +2,7 @@
 
 Operational steps that are not code and cannot be automated from CI.
 
-## After deploying 0.6.0 (Gruppen, Firmenadmin, Kontingente)
+## After deploying 0.7.0 (Gruppen, Firmenadmin, Kontingente, Rechte-Entzug)
 
 ### 1. Audit the stored permissions — BEFORE the deploy reaches users
 
@@ -25,7 +25,28 @@ extensions' keys (`companies:*`, `time:*`, `wiki:*`) — those are the grants th
 old code was silently discarding, and they are the point of the change. Anything
 you do NOT recognise, clean up before the deploy.
 
-### 2. Promote the first company admin of each company
+### 2. Switch delegation ON for the company — FIRST
+
+Since 0.7.0 a company can only have company admins if it has been granted them:
+`auth_company_policy.allow_company_admins`. A company with no policy row at all
+counts as **not granted**, which is every company after the migration.
+
+*Benutzer* → **Firmen-Kontingente** → pick the company → *Firmenadmins zulassen*.
+Or directly:
+
+```sql
+INSERT INTO auth_company_policy (company_id, allow_company_admins)
+VALUES (<id>, 1)
+ON DUPLICATE KEY UPDATE allow_company_admins = 1;
+```
+
+**Do this before step 3.** In the other order the promotion is refused
+(`422 delegation_disabled`) — and if an older row already carries
+`is_company_admin = 1`, it simply grants nothing: the resolver folds the flag
+away and `/company/*` answers `403 delegation_disabled`. Nothing is broken, but
+nothing works either, and there is no error to find.
+
+### 3. Promote the first company admin of each company
 
 Every `app_user_company.is_company_admin` starts at `0`, so no company can
 manage itself until a platform admin promotes someone. **Without this step the
@@ -42,7 +63,11 @@ UPDATE app_user_company SET is_company_admin = 1
 UPDATE session SET revoked_at = NOW() WHERE user_id = <id> AND revoked_at IS NULL;
 ```
 
-### 3. (Optional) Set a policy per company
+More than one per company is fine and expected. A company with **zero** company
+admins is a valid state too — it simply means nobody administers it from inside;
+the platform admin still can, through the same screens.
+
+### 4. (Optional) Set a policy per company
 
 A company with no `auth_company_policy` row is unrestricted — that is today's
 behaviour and a perfectly good end state. Set one only where you actually want a

@@ -12,8 +12,16 @@ namespace Tds\AuthApi\Domain;
  * one active company at a time.
  *
  * `$permissions` are the **direct** grants. The set that actually applies is
- * `direct ∪ groups ∩ ceiling` — see {@see EffectivePermissions}, which is what
- * the JWT carries.
+ * `(direct ∪ groups) \ denies ∩ ceiling` — see {@see EffectivePermissions},
+ * which is what the JWT carries.
+ *
+ * ### `permissionCeiling` and `permissionDenies` are not the same thing
+ *
+ * The ceiling is the **platform admin's limit on delegation**: the most this
+ * person may ever be granted, which a company admin cannot raise. The denies
+ * are the **current decision** about this person, editable by whoever manages
+ * them. A right can be inside the ceiling and still denied; a right cannot be
+ * outside the ceiling and granted. Conflating them is the easy mistake here.
  */
 final class Membership
 {
@@ -22,6 +30,8 @@ final class Membership
      * @param list<int> $groupIds groups assigned to this user IN this company
      * @param list<string>|null $permissionCeiling per-user cap; null = inherit
      *                                             the company policy
+     * @param list<string> $permissionDenies withheld from this person, even
+     *                                       when a group grants it
      */
     public function __construct(
         public readonly int $companyId,
@@ -29,13 +39,39 @@ final class Membership
         public readonly bool $isCompanyAdmin = false,
         public readonly array $groupIds = [],
         public readonly ?array $permissionCeiling = null,
+        public readonly array $permissionDenies = [],
     ) {
+    }
+
+    /**
+     * A copy with the resolved values — what the caller may actually believe.
+     *
+     * `$permissions` becomes the EFFECTIVE set and `$isCompanyAdmin` is folded
+     * against the company's delegation flag. Everything that hands a membership
+     * to the outside world ({@see \Tds\AuthApi\Service\JwtService},
+     * `MeAction`) goes through {@see \Tds\AuthApi\Service\PermissionResolver}
+     * to get one of these, so the raw row never leaves the service claiming
+     * more than it is worth.
+     *
+     * @param list<string> $permissions
+     */
+    public function resolved(array $permissions, bool $isCompanyAdmin): self
+    {
+        return new self(
+            $this->companyId,
+            $permissions,
+            $isCompanyAdmin,
+            $this->groupIds,
+            $this->permissionCeiling,
+            $this->permissionDenies,
+        );
     }
 
     /**
      * @return array{
      *   companyId:int, customerId:int, permissions:list<string>,
-     *   isCompanyAdmin:bool, groupIds:list<int>, permissionCeiling:list<string>|null
+     *   isCompanyAdmin:bool, groupIds:list<int>,
+     *   permissionCeiling:list<string>|null, permissionDenies:list<string>
      * }
      */
     public function toArray(): array
@@ -49,6 +85,7 @@ final class Membership
             'isCompanyAdmin' => $this->isCompanyAdmin,
             'groupIds' => $this->groupIds,
             'permissionCeiling' => $this->permissionCeiling,
+            'permissionDenies' => $this->permissionDenies,
         ];
     }
 }

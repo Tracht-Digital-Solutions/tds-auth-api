@@ -14,6 +14,7 @@ use Tds\AuthApi\Service\PasskeyRepository;
 use Tds\AuthApi\Service\RateLimiter;
 use Tds\AuthApi\Service\RememberCookieFactory;
 use Tds\AuthApi\Service\RememberTokenService;
+use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Service\SessionRepository;
 use Tds\AuthApi\Service\WebAuthnFactory;
 
@@ -41,6 +42,7 @@ final class PasskeyLoginAction
         private readonly RateLimiter $rateLimiter,
         private readonly RememberTokenService $remember,
         private readonly RememberCookieFactory $rememberCookies,
+        private readonly PermissionResolver $permissions,
     ) {
     }
 
@@ -115,7 +117,7 @@ final class PasskeyLoginAction
 
         $this->passkeys->touch($passkey['id'], $lib->getSignatureCounter() ?? $passkey['sign_count']);
 
-        $issued = $this->jwt->issueForUser($user);
+        $issued = $this->jwt->issueForUser($user, $this->permissions->forUser($user->id));
         $this->sessions->record($issued['jti'], $user->companyId, $user->isAdmin, $issued['expiresAt'], $user->id);
 
         $result = $this->json($response, 200, [

@@ -14,7 +14,16 @@ use Tds\AuthApi\Service\SessionRepository;
  * PUT /admin/companies/{companyId}/policy
  *
  * Body: `{maxUsers?: int|null, allowedPermissions?: string[]|null,
- * allowCustomGroups?: bool}`. Absent keys keep their current value.
+ * allowCustomGroups?: bool, allowCompanyAdmins?: bool}`. Absent keys keep their
+ * current value.
+ *
+ * ### `allowCompanyAdmins` is the switch the whole delegated surface hangs on
+ *
+ * Off (and off is the default, including for a company with no policy row at
+ * all): nobody inside the company can create or manage users or assign groups,
+ * `/company/*` answers 403, and a membership's `is_company_admin` resolves to
+ * false everywhere it is published. Turning it off revokes the company's
+ * sessions for the same reason a narrowed ceiling does.
  *
  * ### `null` and `[]` are different answers
  *
@@ -90,12 +99,22 @@ final class SaveCompanyPolicyAction
             $fields['allowCustomGroups'] = (bool) $body['allowCustomGroups'];
         }
 
+        // Switching delegation off has to reach people the same way a narrowed
+        // ceiling does: the `admin` flag rides in a signed token, so without a
+        // revoke a company admin keeps administering for up to an hour after
+        // the switch says they may not.
+        $delegationChanged = array_key_exists('allowCompanyAdmins', $body)
+            && (bool) $body['allowCompanyAdmins'] !== $this->policies->get($companyId)->allowCompanyAdmins;
+        if (array_key_exists('allowCompanyAdmins', $body)) {
+            $fields['allowCompanyAdmins'] = (bool) $body['allowCompanyAdmins'];
+        }
+
         $policy = $this->policies->save($companyId, $fields);
 
         // A narrowed ceiling reduces what people may already do; make it real
         // now instead of up to an hour from now.
         $revoked = 0;
-        if ($ceilingChanged) {
+        if ($ceilingChanged || $delegationChanged) {
             foreach ($this->users->list($companyId) as $member) {
                 $this->sessions->revokeAllForUser($member->id);
                 $revoked++;

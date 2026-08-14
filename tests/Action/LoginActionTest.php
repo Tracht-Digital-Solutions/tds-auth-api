@@ -12,7 +12,10 @@ use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\RememberCookieFactory;
 use Tds\AuthApi\Service\RememberTokenService;
+use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
+use Tds\AuthApi\Tests\Support\FakeCompanyPolicyRepository;
+use Tds\AuthApi\Tests\Support\FakeGroupRepository;
 use Tds\AuthApi\Tests\Support\FakeRememberTokenRepository;
 use Tds\AuthApi\Tests\Support\FakeRateLimiter;
 use Tds\AuthApi\Tests\Support\FakeSessionRepository;
@@ -28,10 +31,19 @@ final class LoginActionTest extends TestCase
     private RememberTokenService $remember;
     private RememberCookieFactory $rememberCookies;
     private FakeRateLimiter $rateLimiter;
+    private FakeGroupRepository $groups;
+    private FakeCompanyPolicyRepository $policies;
+    private PermissionResolver $permissions;
 
     protected function setUp(): void
     {
         $this->users = new FakeAppUserRepository();
+        // The resolver is what turns stored rows into what a token may claim.
+        // Wiring it here is deliberate: it was registered and injected NOWHERE
+        // for a release, so groups granted nothing — and no test noticed.
+        $this->groups = new FakeGroupRepository();
+        $this->policies = new FakeCompanyPolicyRepository();
+        $this->permissions = new PermissionResolver($this->groups, $this->policies);
         $keys = new Keys();
         $this->jwt = new JwtService(
             privateKeyPem: $keys->privatePem,
@@ -163,7 +175,7 @@ final class LoginActionTest extends TestCase
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/login')
             ->withParsedBody($payload);
-        $action = new LoginAction($this->users, $this->jwt, $this->sessions, $this->cookies, $this->rateLimiter, $this->remember, $this->rememberCookies);
+        $action = new LoginAction($this->users, $this->jwt, $this->sessions, $this->cookies, $this->rateLimiter, $this->remember, $this->rememberCookies, $this->permissions);
         return $action($request, new Response());
     }
 

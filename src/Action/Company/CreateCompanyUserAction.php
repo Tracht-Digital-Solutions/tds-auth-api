@@ -52,6 +52,9 @@ final class CreateCompanyUserAction
         $policy = $this->policies->get($companyId);
         $permissions = Permissions::sanitize($body['permissions'] ?? []);
         $groupIds = self::ids($body['groupIds'] ?? []);
+        // Rights withheld from this one person even where a group grants them.
+        // Needs no ceiling check — a deny only ever reduces.
+        $denies = Permissions::sanitize($body['permissionDenies'] ?? []);
 
         $groupSets = [];
         foreach ($groupIds as $groupId) {
@@ -124,6 +127,7 @@ final class CreateCompanyUserAction
                 $companyId,
                 $permissions,
                 (bool) ($body['isCompanyAdmin'] ?? false),
+                permissionDenies: $denies,
             );
             $this->groups->setForUserInCompany((int) $userId, $companyId, $groupIds);
         });

@@ -9,6 +9,7 @@ use Slim\Psr7\Response;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\AvatarRepository;
+use Tds\AuthApi\Service\PermissionResolver;
 
 /**
  * GET /me
@@ -25,6 +26,7 @@ final class MeAction
     public function __construct(
         private readonly AppUserRepository $users,
         private readonly AvatarRepository $avatars,
+        private readonly PermissionResolver $permissions,
     ) {
     }
 
@@ -59,9 +61,17 @@ final class MeAction
             // and those files are gone. The profile page uses this to decide
             // whether to offer "Entfernen".
             'hasAvatar' => $this->avatars->meta($user->id) !== null,
+            // RESOLVED, not the raw rows: the panel decides from this whether
+            // to offer "Meine Firma" and which rights to show as held, and the
+            // stored row knows neither what the groups add nor whether the
+            // company's delegation is switched on. Emitting it raw is how the
+            // nav came to advertise a page the server refuses.
             'companies' => $user->isAdmin
                 ? []
-                : array_map(static fn ($m) => $m->toArray(), $user->memberships),
+                : array_map(
+                    fn ($m) => $this->permissions->effective($user->id, $m)->toArray(),
+                    $user->memberships,
+                ),
             'companyId' => $user->companyId,
             // Deprecated alias, emitted for one release so a client built
             // against the old name keeps working. Dropped in the follow-up.

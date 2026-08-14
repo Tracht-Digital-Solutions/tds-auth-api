@@ -61,6 +61,10 @@ final class ListCompanyUsersAction
                 'permissions' => $membership?->permissions ?? [],
                 'groupIds' => $membership?->groupIds ?? [],
                 'isCompanyAdmin' => $membership?->isCompanyAdmin ?? false,
+                // The RAW stored decision, not the effective set: the editor
+                // has to show which rights are withheld, and an effective list
+                // cannot express "the group grants it and we took it away".
+                'permissionDenies' => $membership?->permissionDenies ?? [],
             ];
         }, $members);
 
@@ -76,6 +80,10 @@ final class ListCompanyUsersAction
             // What this admin may grant. Null = no ceiling.
             'allowedPermissions' => $policy->allowedPermissions,
             'allowCustomGroups' => $policy->allowCustomGroups,
+            // Always true by the time anyone reads this — the middleware
+            // refuses the route otherwise — but the client renders the
+            // Firmenadmin control from it, so it is stated rather than assumed.
+            'allowCompanyAdmins' => $policy->allowCompanyAdmins,
             'groups' => array_map(
                 static fn ($g): array => $g->toArray(),
                 self::assignable($this->groups->list($companyId), $policy->allowedPermissions),

@@ -7,18 +7,31 @@ namespace Tds\AuthApi\Domain;
  * What a user may actually do in one company.
  *
  * ```
- * effective(user, company) = direct grants
- *                          ∪ groups assigned at (user, company)
- *                          ∪ groups assigned globally (company 0)
- *                          ∩ ceiling(user, company)
+ * effective(user, company) = ( direct grants
+ *                            ∪ groups assigned at (user, company)
+ *                            ∪ groups assigned globally (company 0) )
+ *                          \ denies(user, company)   ← beats the group
+ *                          ∩ ceiling(user, company)  ← beats everything
  * ```
  *
- * ### Grant-only. There are no deny rules, and there will not be
+ * ### Per-person denies, and why that is not the deny-rule trap
  *
- * Deny rules make an RBAC model unauditable — "why can this person not do X"
- * stops having a single answer — and they interact badly with the ceiling: a
- * deny that the ceiling already covers is dead weight, and one it does not is a
- * second, competing limit.
+ * This class used to say there would never be deny rules, because they make an
+ * RBAC model unauditable — "why can this person not do X" stops having a single
+ * answer. That objection is about denies attached to ROLES, which compose:
+ * two groups, one granting and one denying, and the outcome depends on
+ * precedence nobody remembers.
+ *
+ * A deny here is attached to one membership. It has exactly one source and one
+ * scope, so the question keeps a single answer — "it is withheld on their
+ * membership in this company" — and the editor shows that state next to the
+ * group it overrides. Groups stay shared and stay live: the alternative people
+ * reach for is cloning a group for one person, which silently stops tracking
+ * the original.
+ *
+ * The order is fixed: a deny beats a group grant, the ceiling beats a deny and
+ * a direct grant alike. A deny needs no ceiling check when written — it can
+ * only reduce.
  *
  * ### The ceiling is intersected here, not only checked on write
  *
@@ -37,10 +50,15 @@ final class EffectivePermissions
      * @param list<string> $direct grants stored on the membership
      * @param list<list<string>> $groupPermissionSets one entry per applicable group
      * @param list<string>|null $ceiling null = no ceiling
+     * @param list<string> $denies withheld from this person; empty = none
      * @return list<string>
      */
-    public static function resolve(array $direct, array $groupPermissionSets, ?array $ceiling = null): array
-    {
+    public static function resolve(
+        array $direct,
+        array $groupPermissionSets,
+        ?array $ceiling = null,
+        array $denies = [],
+    ): array {
         $union = [];
         foreach ([[$direct], $groupPermissionSets] as $source) {
             foreach ($source as $set) {
@@ -57,6 +75,20 @@ final class EffectivePermissions
                     }
                 }
             }
+        }
+
+        // Subtract BEFORE the ceiling. The two are both subtractive so the
+        // result is the same either way, but doing it in the documented order
+        // keeps the code readable against the formula above.
+        if ($denies !== []) {
+            $withheld = array_map(
+                static fn (string $k): string => PermissionAliases::canonical($k),
+                $denies,
+            );
+            $union = array_values(array_filter(
+                $union,
+                static fn (string $key): bool => !in_array($key, $withheld, true),
+            ));
         }
 
         if ($ceiling !== null) {

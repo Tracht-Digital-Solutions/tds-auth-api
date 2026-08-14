@@ -71,6 +71,10 @@ final class PdoAppUserRepositoryTest extends TestCase
               company_id INT UNSIGNED NOT NULL,
               is_company_admin TINYINT(1) NOT NULL DEFAULT 0,
               permission_ceiling TEXT NULL,
+              -- Kept in step with 20260815000002 by hand: this DDL is written
+              -- out here rather than migrated, so a column added in a migration
+              -- and not added here fails with "Unknown column" in CI only.
+              permission_denies TEXT NULL,
               permissions TEXT NOT NULL,
               created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
               PRIMARY KEY (id),

@@ -88,7 +88,7 @@ once here so no consumer invents its own fallback and renders a blank header.
 > the Phase 2 plan; eyeball it and clean anything unexpected in the same
 > migration.
 
-## Groups, company admins and quotas (0.6.0)
+## Groups, company admins and quotas (0.7.0)
 
 **Groups are real rows now.** `PORTAL_ROLE_PRESETS` in tds-shared was UI sugar:
 the editor expanded one into a flat array on click and nothing recorded which
@@ -109,10 +109,26 @@ migration must never import a moving constant).
   so give them the group" is a guess that would silently change their access the
   first time someone edits the group.
 
-**Effective permissions = `direct ∪ groups ∩ ceiling`** (`EffectivePermissions`,
-a pure function — the whole model is testable without a DB). Grant-only: there
-are no deny rules and there will not be, because they make "why can this person
-not do X" stop having a single answer and would compete with the ceiling.
+**Effective permissions = `(direct ∪ groups) minus denies, then ∩ ceiling`**
+(`EffectivePermissions`, a pure function — the whole model is testable without a
+DB).
+
+**Per-person denies (0.7.0) reverse an earlier "no deny rules, ever".** That
+objection is about denies attached to ROLES, which compose: two groups, one
+granting and one denying, and the outcome hangs on precedence nobody remembers.
+A deny here sits on one membership — one source, one scope — so "why can this
+person not do X" keeps a single answer, and the editor shows it next to the
+group it overrides. The alternative people reach for is cloning a group for one
+person, which silently stops tracking the original. Order is fixed: a deny beats
+a group grant, the ceiling beats everything. **A deny needs no ceiling check on
+write** — it can only reduce, which is also why `permissionDenies` is on the
+company-scoped field whitelist while `permissionCeiling` is not.
+
+**`permissionCeiling` and `permissionDenies` are different things** and the
+easy mistake is to treat them as one. The ceiling is the platform admin's limit
+on delegation — the most this person may ever be granted, unraisable by a
+company admin. The denies are the current decision about the person, editable by
+whoever manages them.
 
 **The ceiling is intersected at TOKEN-ISSUE time, not only when granting.**
 Checking it only on write would make it a one-time gate — lower a company's
@@ -131,7 +147,24 @@ revoke the members' sessions.
 ### The delegated surface: `/company/{companyId}/*`
 
 Gated by `CompanyAdminMiddleware` (after `JwtAuthMiddleware`; Slim is LIFO).
-Passes for a platform admin, or for a `companies[]` entry with `admin: true`.
+Passes for a platform admin, or for a `companies[]` entry with `admin: true`
+**whose company has delegation switched on**.
+
+**Delegation is a per-company grant (`allow_company_admins`, 0.7.0).** Without
+it nobody inside the company creates or manages users or assigns groups: the
+route answers `403 delegation_disabled`, the resolver folds `is_company_admin`
+to false everywhere it is published, and the platform user editor refuses to set
+the flag at all (`422 delegation_disabled`) rather than storing something inert.
+It defaults to **false**, including for a company with no policy row — unlike
+every limit in that table, this field hands a capability out rather than capping
+one, so an unconfigured company must not have it.
+
+The middleware reads that one flag **from the database**, which its docblock
+used to say it never does. Session revocation covers people who already hold a
+token, but this is the switch that says "nobody administers this company from
+inside", and a switch that takes up to an hour to mean anything is not a switch.
+A platform admin bypasses it entirely — it limits what a company may do on its
+own, not what the platform may do to it.
 
 - **Scoped by the PATH, not `X-Act-As-*`.** auth-api's CORS allow-list does not
   carry that header, and widening it on the service that holds the keypair to
@@ -165,9 +198,27 @@ the feature is opt-in per company rather than a migration everyone must survive.
 `[]` = "may grant nothing", and collapsing those two would make locking a
 company down unexpressible.
 
-> **One manual step after deploying:** every `is_company_admin` starts `0`, so a
-> platform admin has to promote the first company admin of each company by hand.
-> Without it the whole feature looks broken. See `RUNBOOK.md`.
+> **Two manual steps after deploying, in this order:** switch delegation on for
+> the company, THEN promote its first company admin (every `is_company_admin`
+> starts `0`). In the other order the promotion is refused; and a pre-existing
+> flag on a company without the grant simply does nothing, with no error to
+> find. Several company admins per company are fine, and zero is a valid state —
+> it just means nobody administers it from inside. See `RUNBOOK.md`.
+
+### The resolver had no consumers for a whole release
+
+`PermissionResolver` was registered in `Bootstrap` and injected **nowhere**: all
+four login paths called `issueForUser($user)` with no resolver, and `MeAction`
+returned the raw membership row. So groups granted nothing, and the ceiling was
+enforced on write and never on issue — the exact one-time gate the design
+argues against. Nothing was red because nothing looked.
+
+Everything that publishes a membership now goes through
+`PermissionResolver::effective()`, and `tests/Service/PermissionResolverTest.php`
+asserts against an **issued and verified token**, not against the resolver in
+isolation: a unit test of the rule proves nothing about whether the issuer uses
+it. If you add a path that hands a membership outside this service, route it
+through the resolver.
 
 `is_support_agent` marks the subset of **admins** that support tickets can be
 assigned to (the "Bearbeiter", read by tds-customer-api / tds-admin). It only

@@ -12,6 +12,7 @@ use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\RateLimiter;
 use Tds\AuthApi\Service\RememberCookieFactory;
 use Tds\AuthApi\Service\RememberTokenService;
+use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Service\SessionRepository;
 
 /**
@@ -40,6 +41,7 @@ final class LoginAction
         private readonly RateLimiter $rateLimiter,
         private readonly RememberTokenService $remember,
         private readonly RememberCookieFactory $rememberCookies,
+        private readonly PermissionResolver $permissions,
     ) {
         $hash = password_hash('not-a-real-password', PASSWORD_ARGON2ID);
         $this->dummyHash = $hash !== false ? $hash : '';
@@ -84,7 +86,7 @@ final class LoginAction
             return $this->json($response, 403, ['error' => 'Account disabled']);
         }
 
-        $issued = $this->jwt->issueForUser($user);
+        $issued = $this->jwt->issueForUser($user, $this->permissions->forUser($user->id));
         $this->sessions->record($issued['jti'], $user->companyId, $user->isAdmin, $issued['expiresAt'], $user->id);
 
         $response = $this->json($response, 200, [

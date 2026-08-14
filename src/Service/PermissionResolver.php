@@ -26,6 +26,17 @@ use Tds\AuthApi\Domain\Membership;
  * The cost is that a group edit reaches a user on their next token. That is the
  * same propagation model the rest of this service uses: authorization changes
  * revoke sessions, which forces a fresh token.
+ *
+ * ### Everything that publishes a membership must come through here
+ *
+ * This class was registered in the container and injected **nowhere** for its
+ * first release: `issueForUser()` was called without a resolver in all four
+ * login paths and `MeAction` returned the raw row. The result was a feature
+ * that looked complete and did nothing — groups could be created and assigned
+ * and granted no rights, and the ceiling was checked when writing but never
+ * when resolving, i.e. exactly the one-time gate {@see EffectivePermissions}
+ * warns about. If a new code path hands a membership outside this service,
+ * route it through {@see self::effective()}.
  */
 final class PermissionResolver
 {
@@ -51,7 +62,38 @@ final class PermissionResolver
             ->get($membership->companyId)
             ->ceilingFor($membership->permissionCeiling);
 
-        return EffectivePermissions::resolve($membership->permissions, $groupSets, $ceiling);
+        return EffectivePermissions::resolve(
+            $membership->permissions,
+            $groupSets,
+            $ceiling,
+            $membership->permissionDenies,
+        );
+    }
+
+    /**
+     * Does this membership really administer its company?
+     *
+     * The stored flag alone is not the answer: delegation is a per-company
+     * grant, so `is_company_admin = 1` on a company that was never switched on
+     * confers nothing. Resolving it here rather than at each reader is what
+     * keeps the nav, the token and the middleware from disagreeing.
+     */
+    public function adminFor(Membership $membership): bool
+    {
+        return $membership->isCompanyAdmin
+            && $this->policies->get($membership->companyId)->allowCompanyAdmins;
+    }
+
+    /**
+     * The membership as the outside world may believe it: effective
+     * permissions, and an admin flag the company policy actually supports.
+     */
+    public function effective(int $userId, Membership $membership): Membership
+    {
+        return $membership->resolved(
+            $this->forMembership($userId, $membership),
+            $this->adminFor($membership),
+        );
     }
 
     /**
@@ -60,11 +102,11 @@ final class PermissionResolver
      * Bound to one user because that is the only shape the issuer needs, and
      * it keeps the resolver from having to guess whose membership it holds.
      *
-     * @return callable(Membership): list<string>
+     * @return callable(Membership): Membership
      */
     public function forUser(int $userId): callable
     {
-        return fn (Membership $m): array => $this->forMembership($userId, $m);
+        return fn (Membership $m): Membership => $this->effective($userId, $m);
     }
 
     /**

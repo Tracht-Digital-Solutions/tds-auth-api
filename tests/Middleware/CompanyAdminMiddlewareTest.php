@@ -9,6 +9,7 @@ use Slim\Factory\AppFactory;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Tds\AuthApi\Middleware\CompanyAdminMiddleware;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
+use Tds\AuthApi\Tests\Support\FakeCompanyPolicyRepository;
 
 /**
  * The gate on `/company/{companyId}/*`.
@@ -22,6 +23,17 @@ use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 final class CompanyAdminMiddlewareTest extends TestCase
 {
     private ?int $seenCompanyId = null;
+    private FakeCompanyPolicyRepository $policies;
+
+    protected function setUp(): void
+    {
+        $this->policies = new FakeCompanyPolicyRepository();
+        // Every pre-existing case here predates the delegation switch and
+        // assumes a company that CAN be administered, so the default is on and
+        // the cases that care turn it off explicitly.
+        $this->policies->allowDelegation(7);
+        $this->policies->allowDelegation(9);
+    }
 
     /**
      * Run the gate through a REAL Slim app.
@@ -46,7 +58,7 @@ final class CompanyAdminMiddlewareTest extends TestCase
 
             return $response;
         })
-            ->add(new CompanyAdminMiddleware())
+            ->add(new CompanyAdminMiddleware($this->policies))
             // Stands in for JwtAuthMiddleware: attaches the claims the gate
             // reads. Added last, so it runs FIRST (Slim middleware is LIFO).
             ->add(function ($request, $handler) use ($claims) {
@@ -130,5 +142,50 @@ final class CompanyAdminMiddlewareTest extends TestCase
             42,
             $this->seenCompanyId,
         );
+    }
+
+    // --- the delegation grant ---------------------------------------------
+
+    public function test_a_company_admin_is_refused_while_delegation_is_off(): void
+    {
+        // The signed claim says they administer company 7 — and they may not,
+        // because the platform never switched delegation on for it. Read from
+        // the database rather than the token so switching it OFF takes effect
+        // immediately instead of within the hour the token still lives.
+        $this->policies->allowDelegation(7, false);
+
+        $response = $this->gate(
+            ['admin' => false, 'companies' => [['id' => 7, 'admin' => true]]],
+            7,
+        );
+
+        self::assertSame(403, $response->getStatusCode());
+        $response->getBody()->rewind();
+        self::assertSame(
+            'delegation_disabled',
+            json_decode($response->getBody()->getContents(), true)['code'] ?? null,
+        );
+    }
+
+    public function test_a_company_with_no_policy_row_at_all_is_refused(): void
+    {
+        // "No configuration" must not read as "may administer itself": every
+        // company starts without a policy row, so a permissive default would
+        // hand delegation to every company that exists.
+        $response = $this->gate(
+            ['admin' => false, 'companies' => [['id' => 12345, 'admin' => true]]],
+            12345,
+        );
+
+        self::assertSame(403, $response->getStatusCode());
+    }
+
+    public function test_a_platform_admin_passes_even_with_delegation_off(): void
+    {
+        // The grant limits what a COMPANY may do on its own. The platform admin
+        // manages that company's users precisely when nobody inside can.
+        $this->policies->allowDelegation(7, false);
+
+        self::assertSame(200, $this->gate(['admin' => true], 7)->getStatusCode());
     }
 }

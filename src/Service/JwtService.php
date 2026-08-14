@@ -70,13 +70,18 @@ final class JwtService
      * Issue a JWT for a unified user. Admins carry no portal permissions
      * (they bypass permission checks downstream).
      *
-     * `$resolver` supplies each membership's EFFECTIVE permissions — direct
-     * grants ∪ groups ∩ ceiling. It is a callback rather than a repository
-     * dependency because this service must stay constructible from a keypair
-     * alone (`composer keygen`, several tests); without one, the membership's
-     * direct grants are used, which is exactly the pre-groups behaviour.
+     * `$resolver` turns each stored membership into its RESOLVED form —
+     * effective permissions ((direct ∪ groups) \ denies ∩ ceiling) and an admin
+     * flag folded against the company's delegation grant. It is a callback
+     * rather than a repository dependency because this service must stay
+     * constructible from a keypair alone (`composer keygen`, several tests).
      *
-     * @param null|callable(Membership): list<string> $resolver
+     * **Omitting it is a downgrade, not a default.** Without a resolver the raw
+     * row is used, so groups grant nothing and the ceiling is not applied —
+     * which is exactly how this shipped once. Every production call site passes
+     * one; see {@see \Tds\AuthApi\Service\PermissionResolver::forUser()}.
+     *
+     * @param null|callable(Membership): Membership $resolver
      * @return array{token: string, jti: string, expiresAt: int}
      */
     public function issueForUser(AppUser $user, ?callable $resolver = null): array
@@ -88,15 +93,21 @@ final class JwtService
         $companies = $user->isAdmin
             ? []
             : array_map(
-                static fn (Membership $m): array => [
-                    'id' => $m->companyId,
-                    'permissions' => $resolver !== null ? $resolver($m) : $m->permissions,
-                    // Whether this membership may manage the company's users.
-                    // Read by CompanyAdminMiddleware; the claim is signed, so
-                    // it is trusted — every change to the flag revokes the
-                    // user's sessions, which is how it propagates.
-                    'admin' => $m->isCompanyAdmin,
-                ],
+                static function (Membership $m) use ($resolver): array {
+                    $resolved = $resolver !== null ? $resolver($m) : $m;
+
+                    return [
+                        'id' => $resolved->companyId,
+                        'permissions' => $resolved->permissions,
+                        // Whether this membership may manage the company's
+                        // users — already folded against the company's
+                        // delegation grant by the resolver. Read by
+                        // CompanyAdminMiddleware; the claim is signed, so it is
+                        // trusted for the hour it lives, and every change to
+                        // the flag revokes the user's sessions.
+                        'admin' => $resolved->isCompanyAdmin,
+                    ];
+                },
                 $user->memberships,
             );
 

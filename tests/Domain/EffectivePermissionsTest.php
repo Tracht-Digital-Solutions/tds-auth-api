@@ -9,7 +9,7 @@ use Tds\AuthApi\Domain\Permissions;
 
 /**
  * The rule that decides what a user may actually do:
- * `direct ∪ groups ∩ ceiling`.
+ * `(direct ∪ groups) \ denies ∩ ceiling`.
  *
  * A pure function, which is the point — the whole authorization model is
  * testable here without a database, a token or a request.
@@ -122,5 +122,68 @@ final class EffectivePermissionsTest extends TestCase
         $result = EffectivePermissions::resolve(['tickets:read'], [[]]);
 
         self::assertSame(['tickets:read'], $result);
+    }
+// --- per-person denies -------------------------------------------------
+
+    public function test_a_deny_beats_the_group_that_grants_it(): void
+    {
+        // The whole point of the feature: one member of a shared group must be
+        // able to lose one of its rights without cloning the group for them,
+        // which would stop tracking the original from then on.
+        $result = EffectivePermissions::resolve(
+            [],
+            [["invoices:read", "invoices:pay"]],
+            null,
+            ["invoices:pay"],
+        );
+
+        self::assertSame(["invoices:read"], $result);
+    }
+
+    public function test_a_deny_beats_a_direct_grant_too(): void
+    {
+        // Not a special case worth allowing an exception for: "denied" is a
+        // statement about the person, not about where the right came from.
+        $result = EffectivePermissions::resolve(["tickets:write"], [], null, ["tickets:write"]);
+
+        self::assertSame([], $result);
+    }
+
+    public function test_a_deny_for_a_right_nobody_grants_is_inert(): void
+    {
+        // Denies are stored per person and outlive the group assignment that
+        // motivated them. A stale one must not do anything odd.
+        $result = EffectivePermissions::resolve(["tickets:read"], [], null, ["wiki:write"]);
+
+        self::assertSame(["tickets:read"], $result);
+    }
+
+    public function test_the_ceiling_still_wins_over_everything(): void
+    {
+        // Order matters for readability, not for the outcome — both the deny
+        // and the ceiling only ever subtract. This pins that they compose
+        // rather than one of them being skipped when the other applies.
+        $result = EffectivePermissions::resolve(
+            ["tickets:read", "invoices:pay"],
+            [["documents:write"]],
+            ["tickets:read", "invoices:pay"],
+            ["invoices:pay"],
+        );
+
+        self::assertSame(["tickets:read"], $result);
+    }
+
+    public function test_a_deny_normalises_the_pre_rename_spelling(): void
+    {
+        // A deny stored before the customers→companies rename has to withhold
+        // the right it names, not a string that no longer matches anything.
+        $result = EffectivePermissions::resolve(
+            [],
+            [["companies:read", "tickets:read"]],
+            null,
+            ["customers:read"],
+        );
+
+        self::assertSame(["tickets:read"], $result);
     }
 }

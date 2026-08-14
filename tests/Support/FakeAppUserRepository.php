@@ -229,6 +229,7 @@ final class FakeAppUserRepository implements AppUserRepository
         bool $isCompanyAdmin,
         ?array $permissionCeiling = null,
         bool $updateCeiling = false,
+        array $permissionDenies = [],
     ): void {
         // Single-row upsert: the user's OTHER companies survive. That is the
         // property the company-scoped routes depend on, so the fake has to
@@ -239,6 +240,7 @@ final class FakeAppUserRepository implements AppUserRepository
             if (($row['companyId'] ?? null) === $companyId) {
                 $rows[$i]['permissions'] = Permissions::sanitize($permissions);
                 $rows[$i]['isCompanyAdmin'] = $isCompanyAdmin;
+                $rows[$i]['permissionDenies'] = Permissions::sanitize($permissionDenies);
                 if ($updateCeiling) {
                     $rows[$i]['permissionCeiling'] = $permissionCeiling;
                 }
@@ -253,6 +255,7 @@ final class FakeAppUserRepository implements AppUserRepository
                 'isCompanyAdmin' => $isCompanyAdmin,
                 'groupIds' => [],
                 'permissionCeiling' => $updateCeiling ? $permissionCeiling : null,
+                'permissionDenies' => Permissions::sanitize($permissionDenies),
             ];
         }
         $this->membershipRows[$userId] = array_values($rows);
@@ -301,6 +304,7 @@ final class FakeAppUserRepository implements AppUserRepository
                 (bool) ($r['isCompanyAdmin'] ?? false),
                 array_map('intval', (array) ($r['groupIds'] ?? [])),
                 $r['permissionCeiling'] ?? null,
+                (array) ($r['permissionDenies'] ?? []),
             ),
             $this->membershipRows[$u->id] ?? [],
         );

@@ -11,12 +11,22 @@ namespace Tds\AuthApi\Domain;
  * before this feature existed, which is what makes the whole thing opt-in per
  * company rather than a migration everyone has to survive.
  *
- * The three limits are deliberately different shapes:
+ * The fields are deliberately different shapes:
  * - `maxUsers === null` → no seat cap.
  * - `allowedPermissions === null` → no ceiling at all. An empty ARRAY is a
  *   different statement: "may grant nothing". Collapsing the two would make
  *   "lock this company down completely" unexpressible.
  * - `allowCustomGroups` → may the company admin define groups of their own?
+ * - `allowCompanyAdmins` → may this company have company admins AT ALL?
+ *
+ * ### The two booleans default to FALSE, and that is not an inconsistency
+ *
+ * "Absent means unlimited" holds for the limits. The booleans do the opposite
+ * thing: they hand a capability out rather than cap one, so a company nobody
+ * has configured must not have it. Without `allowCompanyAdmins`, nobody inside
+ * the company can create or manage users or assign groups — the whole
+ * `/company/*` surface is refused, and `is_company_admin` on a membership
+ * resolves to false.
  */
 final class CompanyPolicy
 {
@@ -26,6 +36,7 @@ final class CompanyPolicy
         public readonly ?int $maxUsers = null,
         public readonly ?array $allowedPermissions = null,
         public readonly bool $allowCustomGroups = false,
+        public readonly bool $allowCompanyAdmins = false,
     ) {
     }
 
@@ -77,6 +88,7 @@ final class CompanyPolicy
             'maxUsers' => $this->maxUsers,
             'allowedPermissions' => $this->allowedPermissions,
             'allowCustomGroups' => $this->allowCustomGroups,
+            'allowCompanyAdmins' => $this->allowCompanyAdmins,
         ];
     }
 }

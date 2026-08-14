@@ -9,7 +9,7 @@ use Tds\AuthApi\Domain\Permissions;
  * Resolves the company memberships from a user create/update payload.
  *
  * Accepts `memberships: [{companyId, permissions, groupIds, isCompanyAdmin,
- * permissionCeiling}]` and falls back to the legacy single-company
+ * permissionCeiling, permissionDenies}]` and falls back to the legacy single-company
  * `companyId` + `permissions` pair; `memberships` wins when both appear.
  * `customerId` is still read as an alias of `companyId` for one release.
  *
@@ -22,7 +22,8 @@ final class MembershipPayload
      * @param array<string,mixed> $body
      * @return list<array{
      *   companyId:int, permissions:list<string>, groupIds:list<int>,
-     *   isCompanyAdmin:bool, permissionCeiling:list<string>|null
+     *   isCompanyAdmin:bool, permissionCeiling:list<string>|null,
+     *   permissionDenies:list<string>
      * }>
      */
     public static function resolve(array $body): array
@@ -48,6 +49,9 @@ final class MembershipPayload
                         && $m['permissionCeiling'] !== null
                         ? Permissions::sanitize($m['permissionCeiling'])
                         : null,
+                    // Unlike the ceiling, absent and empty are the same thing —
+                    // there is no third state a deny list can be in.
+                    'permissionDenies' => Permissions::sanitize($m['permissionDenies'] ?? []),
                 ];
             }
             return $out;
@@ -69,6 +73,7 @@ final class MembershipPayload
             'groupIds' => [],
             'isCompanyAdmin' => false,
             'permissionCeiling' => null,
+            'permissionDenies' => [],
         ]];
     }
 

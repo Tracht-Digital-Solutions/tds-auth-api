@@ -13,7 +13,10 @@ use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Service\RememberCookieFactory;
 use Tds\AuthApi\Service\RememberTokenService;
+use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
+use Tds\AuthApi\Tests\Support\FakeCompanyPolicyRepository;
+use Tds\AuthApi\Tests\Support\FakeGroupRepository;
 use Tds\AuthApi\Tests\Support\FakeRememberTokenRepository;
 use Tds\AuthApi\Tests\Support\FakeSessionRepository;
 use Tds\AuthApi\Tests\Support\Keys;
@@ -27,10 +30,19 @@ final class ChangePasswordActionTest extends TestCase
     private FakeRememberTokenRepository $rememberRepo;
     private RememberTokenService $remember;
     private RememberCookieFactory $rememberCookies;
+    private FakeGroupRepository $groups;
+    private FakeCompanyPolicyRepository $policies;
+    private PermissionResolver $permissions;
 
     protected function setUp(): void
     {
         $this->users = new FakeAppUserRepository();
+        // The resolver is what turns stored rows into what a token may claim.
+        // Wiring it here is deliberate: it was registered and injected NOWHERE
+        // for a release, so groups granted nothing — and no test noticed.
+        $this->groups = new FakeGroupRepository();
+        $this->policies = new FakeCompanyPolicyRepository();
+        $this->permissions = new PermissionResolver($this->groups, $this->policies);
         $keys = new Keys();
         $this->jwt = new JwtService(
             privateKeyPem: $keys->privatePem,
@@ -133,7 +145,7 @@ final class ChangePasswordActionTest extends TestCase
             ->createServerRequest('PUT', '/password')
             ->withAttribute(JwtAuthMiddleware::ATTR_CLAIMS, ['uid' => $uid, 'jti' => $jti])
             ->withParsedBody($body);
-        $action = new ChangePasswordAction($this->users, $this->jwt, $this->sessions, $this->cookies, $this->remember, $this->rememberCookies);
+        $action = new ChangePasswordAction($this->users, $this->jwt, $this->sessions, $this->cookies, $this->remember, $this->rememberCookies, $this->permissions);
         return $action($request, new Response());
     }
 }

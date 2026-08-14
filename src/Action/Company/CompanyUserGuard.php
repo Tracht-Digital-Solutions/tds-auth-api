@@ -28,11 +28,13 @@ final class CompanyUserGuard
      * broken client (or someone probing) gets a 200 and believes it worked.
      * `permissionCeiling` is absent on purpose — it is the platform admin's
      * limit on this company, so a company admin raising their own would be the
-     * whole feature defeated.
+     * whole feature defeated. `permissionDenies` IS allowed for the mirror
+     * reason: a deny can only ever reduce, so it needs no ceiling check and
+     * grants a company admin nothing they did not already have.
      */
     private const ALLOWED_FIELDS = [
         'email', 'name', 'displayName', 'status',
-        'permissions', 'groupIds', 'isCompanyAdmin',
+        'permissions', 'groupIds', 'isCompanyAdmin', 'permissionDenies',
     ];
 
     /**

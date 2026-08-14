@@ -137,6 +137,9 @@ final class PdoAppUserRepository implements AppUserRepository
                 'ceiling' => array_key_exists('permissionCeiling', $m) && $m['permissionCeiling'] !== null
                     ? Permissions::sanitize($m['permissionCeiling'])
                     : null,
+                // No null/[] distinction here, unlike the ceiling: an empty
+                // deny list and no deny list say the same thing.
+                'denies' => Permissions::sanitize($m['permissionDenies'] ?? []),
             ];
         }
 
@@ -146,8 +149,9 @@ final class PdoAppUserRepository implements AppUserRepository
             $del->execute(['uid' => $userId]);
 
             $ins = $this->pdo->prepare(
-                'INSERT INTO app_user_company (user_id, company_id, is_company_admin, permissions, permission_ceiling, created_at) '
-                . 'VALUES (:uid, :cid, :cadmin, :perms, :ceiling, NOW())'
+                'INSERT INTO app_user_company '
+                . '(user_id, company_id, is_company_admin, permissions, permission_ceiling, permission_denies, created_at) '
+                . 'VALUES (:uid, :cid, :cadmin, :perms, :ceiling, :denies, NOW())'
             );
             foreach ($byCompany as $cid => $row) {
                 $ins->execute([
@@ -156,6 +160,7 @@ final class PdoAppUserRepository implements AppUserRepository
                     'cadmin' => $row['isCompanyAdmin'] ? 1 : 0,
                     'perms' => json_encode($row['permissions']),
                     'ceiling' => $row['ceiling'] === null ? null : json_encode($row['ceiling']),
+                    'denies' => json_encode($row['denies']),
                 ]);
             }
 
@@ -190,16 +195,23 @@ final class PdoAppUserRepository implements AppUserRepository
         bool $isCompanyAdmin,
         ?array $permissionCeiling = null,
         bool $updateCeiling = false,
+        array $permissionDenies = [],
     ): void {
         // A single-row upsert, and the ONLY membership write a company-scoped
         // route may reach. `setMemberships()` above replaces the user's whole
         // set — reachable from `/company/*` it would let one company's admin
         // delete a user's membership of another company with a payload that
         // never mentioned it.
-        $sql = 'INSERT INTO app_user_company (user_id, company_id, is_company_admin, permissions, permission_ceiling, created_at)
-                VALUES (:uid, :cid, :cadmin, :perms, :ceiling, NOW())
+        $sql = 'INSERT INTO app_user_company
+                    (user_id, company_id, is_company_admin, permissions, permission_ceiling, permission_denies, created_at)
+                VALUES (:uid, :cid, :cadmin, :perms, :ceiling, :denies, NOW())
                 ON DUPLICATE KEY UPDATE is_company_admin = VALUES(is_company_admin),
-                    permissions = VALUES(permissions)';
+                    permissions = VALUES(permissions),
+                    permission_denies = VALUES(permission_denies)';
+        // The ceiling is the platform admin's limit and is NOT written by a
+        // company-scoped route, hence the opt-in flag. The denies are always
+        // written: they are the ordinary decision about this person, and a
+        // company admin owns it.
         if ($updateCeiling) {
             $sql .= ', permission_ceiling = VALUES(permission_ceiling)';
         }
@@ -211,6 +223,7 @@ final class PdoAppUserRepository implements AppUserRepository
             'cadmin' => $isCompanyAdmin ? 1 : 0,
             'perms' => json_encode(Permissions::sanitize($permissions)),
             'ceiling' => $permissionCeiling === null ? null : json_encode(Permissions::sanitize($permissionCeiling)),
+            'denies' => json_encode(Permissions::sanitize($permissionDenies)),
         ]);
     }
 
@@ -242,7 +255,7 @@ final class PdoAppUserRepository implements AppUserRepository
     private function membershipsForUser(int $userId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT company_id, is_company_admin, permissions, permission_ceiling
+            'SELECT company_id, is_company_admin, permissions, permission_ceiling, permission_denies
              FROM app_user_company WHERE user_id = :uid ORDER BY id ASC'
         );
         $stmt->execute(['uid' => $userId]);
@@ -269,6 +282,7 @@ final class PdoAppUserRepository implements AppUserRepository
                 permissionCeiling: $row['permission_ceiling'] !== null
                     ? Permissions::hydrate($row['permission_ceiling'])
                     : null,
+                permissionDenies: Permissions::hydrate($row['permission_denies'] ?? null),
             );
         }
         return $out;

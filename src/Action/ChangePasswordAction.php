@@ -12,6 +12,7 @@ use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\RememberCookieFactory;
 use Tds\AuthApi\Service\RememberTokenService;
+use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Service\SessionRepository;
 
 /**
@@ -36,6 +37,7 @@ final class ChangePasswordAction
         private readonly CookieFactory $cookies,
         private readonly RememberTokenService $remember,
         private readonly RememberCookieFactory $rememberCookies,
+        private readonly PermissionResolver $permissions,
     ) {
     }
 
@@ -100,7 +102,7 @@ final class ChangePasswordAction
         // next request. The current device is signed out of the long-lived
         // option too and simply opts in again at the next login.
         $this->remember->forgetAllForUser($user->id);
-        $issued = $this->jwt->issueForUser($user);
+        $issued = $this->jwt->issueForUser($user, $this->permissions->forUser($user->id));
         $this->sessions->record($issued['jti'], $user->companyId, $user->isAdmin, $issued['expiresAt'], $user->id);
 
         return $this->json($response, 200, [

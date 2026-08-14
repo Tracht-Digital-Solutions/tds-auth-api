@@ -9,6 +9,7 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Slim\Psr7\Response;
 use Slim\Routing\RouteContext;
+use Tds\AuthApi\Service\CompanyPolicyRepository;
 
 /**
  * Gate for the `/company/{companyId}/*` surface: may this principal manage
@@ -30,12 +31,21 @@ use Slim\Routing\RouteContext;
  * appear in the access log. A destructive route should say out loud which
  * tenant it acted on.
  *
- * ### The signed claim is trusted
+ * ### The claim is trusted for WHO, the database decides WHETHER
  *
- * No database read here. Every change to `is_company_admin` revokes that user's
- * sessions, so a demoted admin's next request has no valid token at all — the
- * established propagation model in this service, and the reason the claim can
- * be believed for the hour it lives.
+ * Membership and the admin flag come from the signed claim: every change to
+ * `is_company_admin` revokes that user's sessions, so a demoted admin's next
+ * request has no valid token at all.
+ *
+ * The company's **delegation grant** is read fresh, one primary-key lookup on a
+ * tiny table. Revoking sessions covers it too, but only for people who already
+ * had a token — and this is the switch that says "nobody administers this
+ * company from inside". A switch that takes up to an hour to mean anything is
+ * not a switch. (An earlier version of this class said "No database read here";
+ * that was true and is no longer.)
+ *
+ * A **platform admin bypasses the grant entirely** — it limits what a company
+ * may do on its own, not what the platform may do to it.
  */
 final class CompanyAdminMiddleware implements MiddlewareInterface
 {
@@ -49,6 +59,10 @@ final class CompanyAdminMiddleware implements MiddlewareInterface
      * until an action did something an int and a string disagree about.
      */
     public const ATTR_COMPANY_ID = 'tds.companyId';
+
+    public function __construct(private readonly CompanyPolicyRepository $policies)
+    {
+    }
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
@@ -72,6 +86,17 @@ final class CompanyAdminMiddleware implements MiddlewareInterface
             // they may not manage it. (Contrast the per-USER routes, where 404
             // is used precisely to avoid confirming an account exists.)
             return $this->error(403, 'Company administration required');
+        }
+
+        if (!$this->policies->get($companyId)->allowCompanyAdmins) {
+            // Named, not a bare 403: "this company may not be administered
+            // from inside" and "you are not its admin" are different problems
+            // with different fixes, and only a platform admin can fix this one.
+            return $this->error(
+                403,
+                'Company administration is not enabled for this company',
+                'delegation_disabled',
+            );
         }
 
         return $handler->handle($request->withAttribute(self::ATTR_COMPANY_ID, $companyId));
@@ -102,10 +127,14 @@ final class CompanyAdminMiddleware implements MiddlewareInterface
         return false;
     }
 
-    private function error(int $status, string $message): ResponseInterface
+    private function error(int $status, string $message, ?string $code = null): ResponseInterface
     {
         $response = new Response();
-        $response->getBody()->write(json_encode(['error' => $message]));
+        $payload = ['error' => $message];
+        if ($code !== null) {
+            $payload['code'] = $code;
+        }
+        $response->getBody()->write(json_encode($payload));
 
         return $response->withStatus($status)->withHeader('Content-Type', 'application/json');
     }

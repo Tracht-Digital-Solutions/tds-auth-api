@@ -10,7 +10,7 @@ use Tds\AuthApi\Service\CompanyPolicyRepository;
 
 final class PdoCompanyPolicyRepository implements CompanyPolicyRepository
 {
-    private const COLUMNS = 'company_id, max_users, allowed_permissions, allow_custom_groups';
+    private const COLUMNS = 'company_id, max_users, allowed_permissions, allow_custom_groups, allow_company_admins';
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -55,21 +55,28 @@ final class PdoCompanyPolicyRepository implements CompanyPolicyRepository
             ? (bool) $fields['allowCustomGroups']
             : $current->allowCustomGroups;
 
+        $allowAdmins = array_key_exists('allowCompanyAdmins', $fields)
+            ? (bool) $fields['allowCompanyAdmins']
+            : $current->allowCompanyAdmins;
+
         $stmt = $this->pdo->prepare(
-            'INSERT INTO auth_company_policy (company_id, max_users, allowed_permissions, allow_custom_groups)
-             VALUES (:cid, :max, :allowed, :groups)
+            'INSERT INTO auth_company_policy
+                 (company_id, max_users, allowed_permissions, allow_custom_groups, allow_company_admins)
+             VALUES (:cid, :max, :allowed, :groups, :admins)
              ON DUPLICATE KEY UPDATE max_users = VALUES(max_users),
                  allowed_permissions = VALUES(allowed_permissions),
-                 allow_custom_groups = VALUES(allow_custom_groups)'
+                 allow_custom_groups = VALUES(allow_custom_groups),
+                 allow_company_admins = VALUES(allow_company_admins)'
         );
         $stmt->execute([
             'cid' => $companyId,
             'max' => $maxUsers,
             'allowed' => $allowed === null ? null : json_encode($allowed),
             'groups' => $allowGroups ? 1 : 0,
+            'admins' => $allowAdmins ? 1 : 0,
         ]);
 
-        return new CompanyPolicy($companyId, $maxUsers, $allowed, $allowGroups);
+        return new CompanyPolicy($companyId, $maxUsers, $allowed, $allowGroups, $allowAdmins);
     }
 
     public function seatsUsed(int $companyId): int
@@ -132,6 +139,7 @@ final class PdoCompanyPolicyRepository implements CompanyPolicyRepository
             maxUsers: $row['max_users'] !== null ? (int) $row['max_users'] : null,
             allowedPermissions: $allowed,
             allowCustomGroups: (bool) $row['allow_custom_groups'],
+            allowCompanyAdmins: (bool) ($row['allow_company_admins'] ?? false),
         );
     }
 }

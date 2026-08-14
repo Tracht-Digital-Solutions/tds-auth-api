@@ -60,7 +60,8 @@ interface AppUserRepository
      *
      * @param list<array{
      *   companyId?:int, customerId?:int, permissions:list<string>,
-     *   isCompanyAdmin?:bool, permissionCeiling?:list<string>|null
+     *   isCompanyAdmin?:bool, permissionCeiling?:list<string>|null,
+     *   permissionDenies?:list<string>
      * }> $memberships
      */
     public function setMemberships(int $userId, array $memberships): void;
@@ -82,6 +83,7 @@ interface AppUserRepository
         bool $isCompanyAdmin,
         ?array $permissionCeiling = null,
         bool $updateCeiling = false,
+        array $permissionDenies = [],
     ): void;
 
     /** Remove one membership. Never deletes the `app_user` row. */

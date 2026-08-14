@@ -16,6 +16,7 @@ use Tds\AuthApi\Domain\AppUser;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Service\PasswordGenerator;
 use Tds\AuthApi\Tests\Support\FakeAppUserRepository;
+use Tds\AuthApi\Tests\Support\FakeCompanyPolicyRepository;
 use Tds\AuthApi\Tests\Support\FakeSessionRepository;
 
 final class UsersActionsTest extends TestCase
@@ -23,10 +24,12 @@ final class UsersActionsTest extends TestCase
     private FakeAppUserRepository $users;
     private FakeSessionRepository $sessions;
     private PasswordGenerator $passwords;
+    private FakeCompanyPolicyRepository $policies;
 
     protected function setUp(): void
     {
         $this->users = new FakeAppUserRepository();
+        $this->policies = new FakeCompanyPolicyRepository();
         $this->sessions = new FakeSessionRepository();
         $this->passwords = new PasswordGenerator();
     }
@@ -168,6 +171,56 @@ final class UsersActionsTest extends TestCase
         self::assertSame(409, $this->update(1, ['status' => 'disabled'], actingUid: 1)->getStatusCode());
     }
 
+    // ---- the delegation grant --------------------------------------------
+
+    public function test_update_refuses_a_company_admin_for_a_company_without_delegation(): void
+    {
+        // Storing the flag would save cleanly and do nothing: the resolver
+        // folds it away and the middleware refuses the route. This service does
+        // not do stored-but-inert, so the write is refused and names the fix.
+        $this->users->seed(new AppUser(5, 'u@example.com', null, false, 7, [], 'active', 'x'));
+
+        $response = $this->update(
+            5,
+            ['memberships' => [['companyId' => 7, 'permissions' => [], 'isCompanyAdmin' => true]]],
+            actingUid: 1,
+        );
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertSame('delegation_disabled', $this->jsonBody($response)['code']);
+        self::assertSame(7, $this->jsonBody($response)['companyId']);
+    }
+
+    public function test_update_allows_it_once_the_company_is_switched_on(): void
+    {
+        $this->users->seed(new AppUser(5, 'u@example.com', null, false, 7, [], 'active', 'x'));
+        $this->policies->allowDelegation(7);
+
+        $response = $this->update(
+            5,
+            ['memberships' => [['companyId' => 7, 'permissions' => [], 'isCompanyAdmin' => true]]],
+            actingUid: 1,
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+    }
+
+    public function test_update_leaves_a_plain_membership_alone(): void
+    {
+        // The refusal must be about the admin flag only — an ordinary
+        // membership in an unconfigured company is the normal case and has to
+        // keep working exactly as before.
+        $this->users->seed(new AppUser(5, 'u@example.com', null, false, 7, [], 'active', 'x'));
+
+        $response = $this->update(
+            5,
+            ['memberships' => [['companyId' => 7, 'permissions' => ['tickets:read']]]],
+            actingUid: 1,
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+    }
+
     // ---- delete ----------------------------------------------------------
 
     public function test_delete_removes_user_and_revokes(): void
@@ -213,7 +266,7 @@ final class UsersActionsTest extends TestCase
     private function create(array $body): ResponseInterface
     {
         $request = (new ServerRequestFactory())->createServerRequest('POST', '/admin/users')->withParsedBody($body);
-        return (new CreateUserAction($this->users, $this->passwords))($request, new Response());
+        return (new CreateUserAction($this->users, $this->passwords, $this->policies))($request, new Response());
     }
 
     /** @param array<string,mixed> $body */
@@ -222,7 +275,7 @@ final class UsersActionsTest extends TestCase
         $request = (new ServerRequestFactory())->createServerRequest('PATCH', '/admin/users/' . $id)
             ->withAttribute(JwtAuthMiddleware::ATTR_CLAIMS, ['uid' => $actingUid, 'admin' => true])
             ->withParsedBody($body);
-        return (new UpdateUserAction($this->users, $this->sessions))($request, new Response(), ['id' => (string) $id]);
+        return (new UpdateUserAction($this->users, $this->sessions, $this->policies))($request, new Response(), ['id' => (string) $id]);
     }
 
     private function delete(int $id, int $actingUid): ResponseInterface

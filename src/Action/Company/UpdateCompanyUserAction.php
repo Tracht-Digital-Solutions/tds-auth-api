@@ -72,6 +72,12 @@ final class UpdateCompanyUserAction
             ? self::ids($body['groupIds'])
             : ($membership?->groupIds ?? []);
 
+        // Withheld from this person even where a group grants it. No ceiling
+        // check: a deny only ever reduces.
+        $denies = array_key_exists('permissionDenies', $body)
+            ? Permissions::sanitize($body['permissionDenies'])
+            : ($membership?->permissionDenies ?? []);
+
         $groupSets = [];
         foreach ($groupIds as $groupId) {
             $group = $this->groups->find($groupId);
@@ -133,7 +139,13 @@ final class UpdateCompanyUserAction
             $this->users->update($targetId, $fields);
         }
 
-        $this->users->setCompanyMembership($targetId, $companyId, $permissions, $isCompanyAdmin);
+        $this->users->setCompanyMembership(
+            $targetId,
+            $companyId,
+            $permissions,
+            $isCompanyAdmin,
+            permissionDenies: $denies,
+        );
         $this->groups->setForUserInCompany($targetId, $companyId, $groupIds);
 
         // Everything reachable here is authorization-relevant (permissions,
