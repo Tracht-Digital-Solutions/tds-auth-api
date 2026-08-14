@@ -36,7 +36,12 @@ final class AuthCreateUserAvatar extends AbstractMigration
             'primary_key' => ['user_id'],
             'signed' => false,
         ])
-            ->addColumn('user_id', 'integer', ['signed' => false])
+            // Explicit NOT NULL: MySQL 8 rejects a nullable PRIMARY KEY column
+            // (error 1171), whereas MariaDB silently coerces it. Phinx defaults
+            // every addColumn() to nullable, so a PK column that doesn't say so
+            // itself installs fine on dev/CI MariaDB and kills /install.php on
+            // the prod host. Guarded by MigrationDialectTest.
+            ->addColumn('user_id', 'integer', ['signed' => false, 'null' => false])
             ->addColumn('mime_type', 'string', ['limit' => 64, 'default' => 'image/webp'])
             ->addColumn('size_bytes', 'integer', ['signed' => false, 'default' => 0])
             ->addColumn('content', 'blob', ['limit' => MysqlAdapter::BLOB_MEDIUM])

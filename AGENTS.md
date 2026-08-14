@@ -489,7 +489,59 @@ PHPUnit 10. `composer test` runs the suite.
   or wipes the memberships of every user edited for an unrelated reason. Both
   directions are pinned. Verified by mutation: 18 breakages, 18 caught.
 
+- **MigrationDialectTest** — a static scan of `db/migrations/*.php` that fails
+  when a column named in a `primary_key` table option is not declared
+  `'null' => false`. See "Migrations must survive MySQL 8" below; it needs no
+  database and runs in every suite.
+
 See INSTALL.md §7 for the throwaway-Docker test DB recipe.
+
+## Migrations must survive MySQL 8 (0.7.1)
+
+**The prod host is MySQL 8. Dev, CI and every DB-backed test here run
+MariaDB 11, which is markedly more permissive.** A migration can therefore be
+green in every place anyone looks and still be impossible to apply where it
+matters.
+
+Phinx defaults every `addColumn()` to **nullable**. A table declared with
+`'primary_key' => ['user_id']` whose `user_id` column does not say so itself
+emits a nullable PRIMARY KEY column. MariaDB silently coerces it to NOT NULL;
+MySQL 8 refuses:
+
+```
+SQLSTATE[42000] 1171 All parts of a PRIMARY KEY must be NOT NULL
+```
+
+`app_user_avatar` (20260813000001) and `auth_company_policy` (20260814000005)
+both shipped that way. Nothing was red, because nothing ran them on MySQL 8 —
+the first and only symptom was the gateway's `/install.php` dying on a fresh
+host at *"Migration: auth"* with fourteen migrations applied, ten not, and no
+way for the installer to continue. Fixed in **0.7.1**; both now carry
+`'null' => false` with the reason next to them.
+
+Two guards, deliberately both:
+
+| Guard | Where | Catches |
+|---|---|---|
+| `tests/Support/MigrationDialectTest` | this repo's suite | the known trap, instantly, with no DB |
+| *Migrate against MySQL 8* step | `_pipeline.yml`, every run | everything else — it proves the result rather than reading the source |
+
+The CI step runs a `mysql:8` service alongside the MariaDB one (host port 3307)
+and applies the whole set to an empty database before any bundle is published.
+It works without a `.env` because **`phinx.php` now falls back to `getenv()`**:
+PHP's default `variables_order` (`GPCS`) leaves `$_ENV` unpopulated from the
+real environment, so reading `$_ENV` alone would have silently migrated the
+default database instead. Note the precedence — a real `.env` still wins, which
+is what the host relies on.
+
+The gateway repeats the same rehearsal across **all** services
+(`tds-gateway-api/scripts/check-migrations-mysql8.php`, run during the
+assemble), because the composed frontend's 13 extensions have no PHP suite of
+their own.
+
+**Editing an already-applied migration is fine here and only here:** MariaDB
+had coerced the column to NOT NULL anyway, so a host that already ran it has
+the identical schema. Never change a released migration's *version*.
 
 > **Windows gotcha.** The WinGet PHP build ships no active `openssl.cnf`, so
 > `openssl_pkey_new` in `tests/Support/Keys` fails with

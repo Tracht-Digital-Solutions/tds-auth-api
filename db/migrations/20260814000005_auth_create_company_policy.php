@@ -44,7 +44,10 @@ final class AuthCreateCompanyPolicy extends AbstractMigration
             'primary_key' => ['company_id'],
             'signed' => false,
         ])
-            ->addColumn('company_id', 'integer', ['signed' => false])
+            // Explicit NOT NULL: MySQL 8 rejects a nullable PRIMARY KEY column
+            // (error 1171), whereas MariaDB silently coerces it. Phinx defaults
+            // every addColumn() to nullable. Guarded by MigrationDialectTest.
+            ->addColumn('company_id', 'integer', ['signed' => false, 'null' => false])
             ->addColumn('max_users', 'integer', [
                 'signed' => false,
                 'null' => true,
