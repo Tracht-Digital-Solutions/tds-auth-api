@@ -34,10 +34,18 @@ final class PdoSessionRepositoryTest extends TestCase
         );
 
         $this->pdo->exec('DROP TABLE IF EXISTS session');
+        // `company_id`, matching migration 20260814000001. THIS is why the
+        // rename shipped with a broken login and a green CI: the DDL below is
+        // hand-written, so it kept the pre-rename column and every assertion
+        // here passed against a table production does not have. The repository
+        // was still writing `customer_id`, which meant a 500 on every correct
+        // password while a wrong one returned a clean 401. Any column this
+        // suite invents has to be the migrated one — a DB test that builds its
+        // own schema only ever tests itself.
         $this->pdo->exec(<<<'SQL'
             CREATE TABLE session (
               jti VARCHAR(36) NOT NULL,
-              customer_id INT NULL,
+              company_id INT NULL,
               user_id INT NULL,
               admin TINYINT(1) NOT NULL DEFAULT 0,
               expires_at DATETIME NOT NULL,
@@ -48,7 +56,7 @@ final class PdoSessionRepositoryTest extends TestCase
               created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
               revoked_at DATETIME NULL,
               PRIMARY KEY (jti),
-              KEY idx_customer_id (customer_id),
+              KEY idx_company_id (company_id),
               KEY idx_user_id (user_id),
               KEY idx_expires_at (expires_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -86,13 +94,41 @@ final class PdoSessionRepositoryTest extends TestCase
         self::assertTrue($this->repo->isRevoked('jti-3'));
     }
 
-    public function test_record_persists_customer_id_and_admin_flag(): void
+    public function test_record_persists_company_id_and_admin_flag(): void
     {
         $this->repo->record('jti-4', 99, false, time() + 900);
 
-        $row = $this->pdo->query("SELECT customer_id, admin FROM session WHERE jti = 'jti-4'")->fetch();
-        self::assertSame(99, (int) $row['customer_id']);
+        $row = $this->pdo->query("SELECT company_id, admin FROM session WHERE jti = 'jti-4'")->fetch();
+        self::assertSame(99, (int) $row['company_id']);
         self::assertSame(0, (int) $row['admin']);
+    }
+
+    /**
+     * The login regression, at the layer that broke: an admin has no company,
+     * so `record()` is called with a null company id and nothing else in the
+     * statement is exercised by the assertions above. It threw
+     * "Unknown column 'customer_id'" for every user, admin or not.
+     */
+    public function test_record_succeeds_for_a_session_without_a_company(): void
+    {
+        $this->repo->record('jti-no-company', null, true, time() + 900, 1);
+
+        $row = $this->pdo->query("SELECT company_id, user_id FROM session WHERE jti = 'jti-no-company'")->fetch();
+        self::assertNull($row['company_id']);
+        self::assertSame(1, (int) $row['user_id']);
+    }
+
+    public function test_listed_rows_carry_company_id_and_its_deprecated_alias(): void
+    {
+        $this->pdo->exec('DELETE FROM session');
+        $this->repo->record('jti-alias', 77, false, time() + 900, 3);
+
+        $rows = $this->repo->listActiveForUser(3);
+
+        self::assertCount(1, $rows);
+        self::assertSame(77, $rows[0]['company_id']);
+        // Emitted for one release so readers deployed before the rename keep working.
+        self::assertSame(77, $rows[0]['customer_id']);
     }
 
     public function test_record_persists_user_id(): void
@@ -123,7 +159,7 @@ final class PdoSessionRepositoryTest extends TestCase
         $this->repo->revoke('jti-revoked');
         // expired
         $this->pdo->exec(
-            "INSERT INTO session (jti, customer_id, admin, expires_at, created_at) "
+            "INSERT INTO session (jti, company_id, admin, expires_at, created_at) "
             . "VALUES ('jti-expired', 3, 0, '2020-01-01 00:00:00', '2020-01-01 00:00:00')"
         );
 

@@ -5,7 +5,7 @@ namespace Tds\AuthApi\Service;
 
 interface SessionRepository
 {
-    public function record(string $jti, ?int $customerId, bool $admin, int $expiresAtUnix, ?int $userId = null): void;
+    public function record(string $jti, ?int $companyId, bool $admin, int $expiresAtUnix, ?int $userId = null): void;
 
     public function isRevoked(string $jti): bool;
 
@@ -24,6 +24,7 @@ interface SessionRepository
      *
      * @return list<array{
      *   jti: string,
+     *   company_id: ?int,
      *   customer_id: ?int,
      *   admin: bool,
      *   expires_at: string,
@@ -41,6 +42,7 @@ interface SessionRepository
      *
      * @return list<array{
      *   jti: string,
+     *   company_id: ?int,
      *   customer_id: ?int,
      *   admin: bool,
      *   expires_at: string,
