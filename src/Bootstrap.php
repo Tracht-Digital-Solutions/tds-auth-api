@@ -42,6 +42,7 @@ use Tds\AuthApi\Action\ShowAvatarAction;
 use Tds\AuthApi\Action\UpdateMeAction;
 use Tds\AuthApi\Action\UploadAvatarAction;
 use Tds\AuthApi\Infrastructure\Database;
+use Tds\AuthApi\Infrastructure\TimeZone;
 use Tds\AuthApi\Action\Passkey\DeleteAction as DeletePasskeyAction;
 use Tds\AuthApi\Action\Passkey\ListAction as ListPasskeysAction;
 use Tds\AuthApi\Action\Passkey\LoginOptionsAction as PasskeyLoginOptionsAction;
@@ -81,6 +82,9 @@ final class Bootstrap
 {
     public static function createApp(string $rootDir): App
     {
+        // PHP runs in production's zone, Europe/Berlin — see TimeZone.
+        TimeZone::pinPhp();
+
         if (file_exists($rootDir . '/.env')) {
             Dotenv::createImmutable($rootDir)->load();
         }
