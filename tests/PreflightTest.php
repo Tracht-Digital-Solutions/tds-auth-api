@@ -86,4 +86,25 @@ final class PreflightTest extends TestCase
         self::assertSame('true', $response->getHeaderLine('Access-Control-Allow-Credentials'));
         self::assertStringContainsString('POST', $response->getHeaderLine('Access-Control-Allow-Methods'));
     }
+
+    public function test_the_shop_is_allowed_by_the_baseline_alone(): void
+    {
+        // The shop's bar mounts the shared account menu, which reads /me with
+        // credentials. The env here names only the management origin, so this
+        // passes only if the shop is in the hard-coded baseline — an .env line
+        // is exactly what a host is allowed to be missing.
+        $shop = 'https://shop.tracht-digital.de';
+        $app = Bootstrap::createApp($this->rootDir);
+
+        $request = (new ServerRequestFactory())
+            ->createServerRequest('OPTIONS', '/me')
+            ->withHeader('Origin', $shop)
+            ->withHeader('Access-Control-Request-Method', 'GET');
+
+        $response = $app->handle($request);
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertSame($shop, $response->getHeaderLine('Access-Control-Allow-Origin'));
+        self::assertSame('true', $response->getHeaderLine('Access-Control-Allow-Credentials'));
+    }
 }

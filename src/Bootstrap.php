@@ -372,6 +372,9 @@ final class Bootstrap
             'https://management.tracht-digital.de',
             'https://app.tracht-digital.de',
             'https://tools.tracht-digital.de',
+            // The shop's bar mounts the shared account menu, which reads /me
+            // with credentials exactly like the journal's and the tools site's.
+            'https://shop.tracht-digital.de',
         ];
         $raw = self::env('CORS_ALLOWED_ORIGINS', '');
         $extra = array_filter(array_map('trim', explode(',', $raw)));
