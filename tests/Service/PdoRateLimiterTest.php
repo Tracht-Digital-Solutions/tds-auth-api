@@ -75,10 +75,14 @@ final class PdoRateLimiterTest extends TestCase
     {
         $limiter = new PdoRateLimiter($this->pdo, limit: 2, windowSeconds: 60);
 
-        $stale = date('Y-m-d H:i:s', time() - 3600);
-        $stmt = $this->pdo->prepare('INSERT INTO login_attempt (bucket, created_at) VALUES (?, ?)');
-        $stmt->execute(['customer:203.0.113.3', $stale]);
-        $stmt->execute(['customer:203.0.113.3', $stale]);
+        // Stale rows dated by the DATABASE clock, as the limiter dates its own
+        // rows (`NOW()`); a PHP `date()` here only matches where PHP and the
+        // DB session share a time zone, which CI does not guarantee.
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO login_attempt (bucket, created_at) VALUES (?, NOW() - INTERVAL 3600 SECOND)'
+        );
+        $stmt->execute(['customer:203.0.113.3']);
+        $stmt->execute(['customer:203.0.113.3']);
 
         $result = $limiter->check('customer:203.0.113.3');
 
