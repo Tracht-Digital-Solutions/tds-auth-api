@@ -31,6 +31,9 @@ final class JwtAuthMiddleware implements MiddlewareInterface
         private readonly JwtService $jwt,
         private readonly SessionRepository $sessions,
         private readonly bool $requireAdmin = false,
+        // From COOKIE_NAME, like the factory that SETS the cookie. The
+        // constant alone meant renaming the cookie broke every gated route.
+        private readonly string $cookieName = self::COOKIE_NAME,
     ) {
     }
 
@@ -66,7 +69,7 @@ final class JwtAuthMiddleware implements MiddlewareInterface
         if ($auth !== '' && preg_match('/^Bearer\s+(.+)$/i', $auth, $m) === 1) {
             return $m[1];
         }
-        $cookie = $request->getCookieParams()[self::COOKIE_NAME] ?? null;
+        $cookie = $request->getCookieParams()[$this->cookieName] ?? null;
         return is_string($cookie) && $cookie !== '' ? $cookie : null;
     }
 

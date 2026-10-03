@@ -45,10 +45,11 @@ final class PdoRememberTokenRepository implements RememberTokenRepository
         ];
     }
 
-    public function deleteBySelector(string $selector): void
+    public function deleteBySelector(string $selector): bool
     {
         $stmt = $this->pdo->prepare("DELETE FROM app_user_remember WHERE selector = :sel");
         $stmt->execute(['sel' => $selector]);
+        return $stmt->rowCount() > 0;
     }
 
     public function deleteForUser(int $userId): void

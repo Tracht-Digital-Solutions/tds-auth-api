@@ -72,6 +72,32 @@ final class JwtServiceTest extends TestCase
         self::assertSame('99', $claims['sub']);
     }
 
+    public function test_forced_password_change_gets_an_identity_only_token(): void
+    {
+        // The seeded bootstrap admin has a well-known password. Until it is
+        // changed, its token must not carry the admin flag (or anything else
+        // another service would grant on).
+        $user = new AppUser(
+            id: 1,
+            email: 'admin@example.com',
+            name: 'Admin',
+            isAdmin: true,
+            companyId: 7,
+            permissions: ['invoices:pay'],
+            status: 'active',
+            passwordHash: 'x',
+            mustChangePassword: true,
+        );
+
+        $claims = $this->jwt->verify($this->jwt->issueForUser($user)['token']);
+
+        self::assertFalse($claims['admin']);
+        self::assertSame(1, $claims['uid']);
+        self::assertNull($claims['company_id']);
+        self::assertSame([], $claims['permissions']);
+        self::assertSame([], $claims['companies']);
+    }
+
     public function test_issue_for_admin_user_omits_permissions(): void
     {
         $user = new AppUser(

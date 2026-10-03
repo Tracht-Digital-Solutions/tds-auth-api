@@ -6,6 +6,7 @@ namespace Tds\AuthApi\Action;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
+use Tds\AuthApi\Service\ClientIp;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
@@ -50,7 +51,7 @@ final class LoginAction
     public function __invoke(ServerRequestInterface $request, Response $response): ResponseInterface
     {
         // Rate-limit BEFORE validating the payload.
-        $bucket = 'login:' . $this->clientIp($request);
+        $bucket = 'login:' . ClientIp::from($request);
         $rl = $this->rateLimiter->check($bucket);
         if (!$rl['allowed']) {
             return $this->json($response, 429, [
@@ -67,6 +68,14 @@ final class LoginAction
 
         if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || $password === '') {
             return $this->json($response, 400, ['error' => 'Email and password required']);
+        }
+
+        // A second bucket per ACCOUNT: the address bucket alone lets a botnet
+        // spread guesses at one mailbox across as many addresses as it has.
+        if (!$this->rateLimiter->check('login-account:' . hash('sha256', $email))['allowed']) {
+            return $this->json($response, 429, [
+                'error' => 'Too many login attempts. Please try again later.',
+            ]);
         }
 
         $user = $this->users->findByEmail($email);
@@ -122,18 +131,6 @@ final class LoginAction
         return $response;
     }
 
-    private function clientIp(ServerRequestInterface $request): string
-    {
-        $forwarded = $request->getHeaderLine('X-Forwarded-For');
-        if ($forwarded !== '') {
-            return trim(explode(',', $forwarded)[0]);
-        }
-        $real = $request->getHeaderLine('X-Real-IP');
-        if ($real !== '') {
-            return $real;
-        }
-        return $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown';
-    }
 
     /** @param array<string,mixed> $payload */
     private function json(Response $response, int $status, array $payload): ResponseInterface

@@ -17,7 +17,8 @@ interface RememberTokenRepository
      */
     public function findBySelector(string $selector): ?array;
 
-    public function deleteBySelector(string $selector): void;
+    /** True when THIS call removed the row — the rotation's claim on it. */
+    public function deleteBySelector(string $selector): bool;
 
     public function deleteForUser(int $userId): void;
 

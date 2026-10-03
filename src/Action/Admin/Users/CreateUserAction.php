@@ -42,12 +42,14 @@ final class CreateUserAction
         }
 
         $email = strtolower(trim((string) ($body['email'] ?? '')));
-        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+        // 254 is the column (and RFC 5321) limit; past it strict MySQL failed
+        // the INSERT and the editor saw a 500.
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || strlen($email) > 254) {
             return $this->json($response, 422, ['error' => 'Valid email required']);
         }
 
         $name = isset($body['name']) && $body['name'] !== null && trim((string) $body['name']) !== ''
-            ? trim((string) $body['name'])
+            ? mb_substr(trim((string) $body['name']), 0, 200)
             : null;
 
         $isAdmin = (bool) ($body['isAdmin'] ?? false);
@@ -62,6 +64,10 @@ final class CreateUserAction
         $avatarUrl = isset($body['avatarUrl']) && $body['avatarUrl'] !== null && trim((string) $body['avatarUrl']) !== ''
             ? mb_substr(trim((string) $body['avatarUrl']), 0, 500)
             : null;
+        // Rendered as an <img src> on every surface: only https.
+        if ($avatarUrl !== null && !str_starts_with(strtolower($avatarUrl), 'https://')) {
+            return $this->json($response, 422, ['error' => 'avatarUrl must be an https URL']);
+        }
 
         // Company memberships (new `memberships` shape or legacy customerId+permissions).
         $memberships = MembershipPayload::resolve($body);

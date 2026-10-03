@@ -60,6 +60,7 @@ use Tds\AuthApi\Middleware\AdminAuthMiddleware;
 use Tds\AuthApi\Middleware\CompanyAdminMiddleware;
 use Tds\AuthApi\Middleware\CorsMiddleware;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
+use Tds\AuthApi\Middleware\LazyMiddleware;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\AvatarRepository;
 use Tds\AuthApi\Service\AvatarService;
@@ -125,7 +126,7 @@ final class Bootstrap
 
         $container->set(JwtService::class, fn () => new JwtService(
             privateKeyPem: self::loadPrivateKey($rootDir),
-            publicKeyPem: self::loadPublicKey($rootDir),
+            publicKeyPem: self::loadPublicKey($rootDir, self::loadPrivateKey($rootDir)),
             keyId: self::env('JWT_KEY_ID', 'tds-auth-2026-1'),
             issuer: self::env('JWT_ISSUER', 'https://api.tracht-digital.de/auth'),
             ttlSeconds: (int) self::env('JWT_TTL_SECONDS', '3600'),
@@ -135,7 +136,7 @@ final class Bootstrap
         $container->set(CookieFactory::class, fn () => new CookieFactory(
             name: self::env('COOKIE_NAME', 'tds_session'),
             domain: self::env('COOKIE_DOMAIN', '.tracht-digital.de'),
-            secure: self::env('APP_ENV') === 'production',
+            secure: self::isProduction(),
         ));
 
         // "Angemeldet bleiben". Same attributes as the session cookie, different
@@ -144,7 +145,7 @@ final class Bootstrap
         $container->set(RememberCookieFactory::class, fn () => new RememberCookieFactory(new CookieFactory(
             name: self::env('REMEMBER_COOKIE_NAME', 'tds_remember'),
             domain: self::env('COOKIE_DOMAIN', '.tracht-digital.de'),
-            secure: self::env('APP_ENV') === 'production',
+            secure: self::isProduction(),
         )));
 
         $container->set(RememberTokenRepository::class, fn (Container $c) => new PdoRememberTokenRepository($c->get(PDO::class)));
@@ -193,7 +194,7 @@ final class Bootstrap
                 : hash('sha256', self::loadPrivateKey($rootDir)),
             cookieName: self::env('WEBAUTHN_COOKIE_NAME', 'tds_wa_challenge'),
             domain: self::env('COOKIE_DOMAIN', '.tracht-digital.de'),
-            secure: self::env('APP_ENV') === 'production',
+            secure: self::isProduction(),
         ));
 
         $container->set(RememberTokenService::class, fn (Container $c) => new RememberTokenService(
@@ -207,7 +208,9 @@ final class Bootstrap
         $app = AppFactory::create();
         $app->addBodyParsingMiddleware();
         $app->addRoutingMiddleware();
-        $app->addErrorMiddleware(self::env('APP_ENV') !== 'production', true, true);
+        // Stack traces only where it is safe: an unset or misspelled APP_ENV
+        // ("prod", "staging") used to print them to every client.
+        $app->addErrorMiddleware(!self::isProduction(), true, true);
         // Slim middleware is LIFO — the LAST added runs FIRST. CORS must be
         // added after routing/error so it is outermost: otherwise the routing
         // middleware 405s an OPTIONS preflight (no OPTIONS routes are
@@ -217,19 +220,28 @@ final class Bootstrap
 
         // Per-admin JWT gate (replaces the shared ADMIN_TOKEN for the UI) and a
         // generic any-session gate for /me + /password.
-        $adminJwt = new JwtAuthMiddleware(
+        //
+        // Lazy: building them here loaded the private key and opened the
+        // database for every request (see LazyMiddleware).
+        $sessionCookie = self::env('COOKIE_NAME', 'tds_session');
+        $adminJwt = new LazyMiddleware(static fn () => new JwtAuthMiddleware(
             $container->get(JwtService::class),
             $container->get(SessionRepository::class),
             requireAdmin: true,
-        );
-        $sessionAuth = new JwtAuthMiddleware(
+            cookieName: $sessionCookie,
+        ));
+        $sessionAuth = new LazyMiddleware(static fn () => new JwtAuthMiddleware(
             $container->get(JwtService::class),
             $container->get(SessionRepository::class),
-        );
+            cookieName: $sessionCookie,
+        ));
         // Service-to-service token for the customer-api onboarding call. Falls
         // back to the legacy ADMIN_TOKEN so existing deployments keep working
         // until SERVICE_TOKEN is set.
-        $service = new AdminAuthMiddleware(self::env('SERVICE_TOKEN', self::env('ADMIN_TOKEN', '')));
+        // `.env.example` ships `SERVICE_TOKEN=` EMPTY, so "unset" has to include
+        // empty — `env()`'s default only applies to an absent key.
+        $serviceToken = self::env('SERVICE_TOKEN', '');
+        $service = new AdminAuthMiddleware($serviceToken !== '' ? $serviceToken : self::env('ADMIN_TOKEN', ''));
 
         $app->get('/healthz', HealthAction::class);
 
@@ -293,7 +305,7 @@ final class Bootstrap
         // Slim middleware is LIFO — the LAST `add()` runs FIRST — so the JWT
         // gate is added last and CompanyAdminMiddleware sees the claims it
         // attached.
-        $companyAdmin = new CompanyAdminMiddleware($container->get(CompanyPolicyRepository::class));
+        $companyAdmin = new LazyMiddleware(static fn () => new CompanyAdminMiddleware($container->get(CompanyPolicyRepository::class)));
 
         $app->group('/company/{companyId:[0-9]+}', function (RouteCollectorProxy $group): void {
             $group->get('/users', ListCompanyUsersAction::class);
@@ -338,6 +350,17 @@ final class Bootstrap
      * values ("0", "") because `??` binds tighter than `?:` (the bug
      * that bit all four APIs via copy-paste).
      */
+    /**
+     * Production unless APP_ENV says otherwise. A missing APP_ENV threw, and
+     * anything but the exact word `production` turned secure cookies off and
+     * error details on — the unsafe side of both.
+     */
+    private static function isProduction(): bool
+    {
+        $env = strtolower(trim(self::env('APP_ENV', 'production')));
+        return in_array($env, ['production', 'prod'], true);
+    }
+
     private static function env(string $key, ?string $default = null): string
     {
         $v = $_ENV[$key] ?? false;
@@ -398,8 +421,21 @@ final class Bootstrap
         return (string) file_get_contents($file);
     }
 
-    private static function loadPublicKey(string $rootDir): string
+    /**
+     * The public half. Derived from the private key when that came from
+     * `JWT_PRIVATE_KEY`: reading it from `keys/public.pem` regardless could
+     * pair an env key with a file from a different keypair, and every token
+     * would then fail verification everywhere.
+     */
+    private static function loadPublicKey(string $rootDir, string $privateKeyPem): string
     {
+        if (self::env('JWT_PRIVATE_KEY', '') !== '') {
+            $key = openssl_pkey_get_private($privateKeyPem);
+            $details = $key !== false ? openssl_pkey_get_details($key) : false;
+            if (is_array($details) && isset($details['key']) && is_string($details['key'])) {
+                return $details['key'];
+            }
+        }
         $file = $rootDir . '/keys/public.pem';
         if (!file_exists($file)) {
             throw new \RuntimeException('keys/public.pem missing — run `composer keygen`');

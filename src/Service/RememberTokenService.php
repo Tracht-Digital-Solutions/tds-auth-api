@@ -99,7 +99,17 @@ final class RememberTokenService
             return null;
         }
 
-        $this->repository->deleteBySelector($selector);
+        // The DELETE is the claim: two concurrent refreshes with one cookie
+        // both read the row, but only one removes it. The loser gets nothing
+        // instead of a second valid token (which logged the other tab out).
+        if (!$this->repository->deleteBySelector($selector)) {
+            return null;
+        }
+        // Expired rows of other users are swept on the way: nothing else ever
+        // called purgeExpired(), so the table only grew.
+        if (random_int(1, 50) === 1) {
+            $this->repository->purgeExpired();
+        }
         return [
             'userId' => $row['user_id'],
             'cookie' => $this->issue($row['user_id'], $userAgent),

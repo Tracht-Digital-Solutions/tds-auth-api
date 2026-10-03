@@ -82,7 +82,7 @@ final class UpdateUserAction
 
         if (array_key_exists('email', $body)) {
             $email = strtolower(trim((string) $body['email']));
-            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || strlen($email) > 254) {
                 return $this->json($response, 422, ['error' => 'Valid email required']);
             }
             if ($this->users->emailExists($email, $id)) {
@@ -93,7 +93,7 @@ final class UpdateUserAction
 
         if (array_key_exists('name', $body)) {
             $name = $body['name'] !== null && trim((string) $body['name']) !== ''
-                ? trim((string) $body['name'])
+                ? mb_substr(trim((string) $body['name']), 0, 200)
                 : null;
             $fields['name'] = $name;
         }
@@ -122,6 +122,14 @@ final class UpdateUserAction
             $fields['bio'] = $body['bio'] !== null && trim((string) $body['bio']) !== ''
                 ? mb_substr(trim((string) $body['bio']), 0, 500)
                 : null;
+        }
+        if (
+            array_key_exists('avatarUrl', $body)
+            && $body['avatarUrl'] !== null
+            && trim((string) $body['avatarUrl']) !== ''
+            && !str_starts_with(strtolower(trim((string) $body['avatarUrl'])), 'https://')
+        ) {
+            return $this->json($response, 422, ['error' => 'avatarUrl must be an https URL']);
         }
         if (array_key_exists('avatarUrl', $body)) {
             $fields['avatar_url'] = $body['avatarUrl'] !== null && trim((string) $body['avatarUrl']) !== ''

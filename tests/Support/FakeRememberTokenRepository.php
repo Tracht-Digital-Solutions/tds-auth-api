@@ -41,10 +41,12 @@ final class FakeRememberTokenRepository implements RememberTokenRepository
         ];
     }
 
-    public function deleteBySelector(string $selector): void
+    public function deleteBySelector(string $selector): bool
     {
         $this->deleted[] = $selector;
+        $existed = isset($this->rows[$selector]);
         unset($this->rows[$selector]);
+        return $existed;
     }
 
     public function deleteForUser(int $userId): void

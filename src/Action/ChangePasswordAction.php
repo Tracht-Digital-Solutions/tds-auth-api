@@ -102,6 +102,9 @@ final class ChangePasswordAction
         // next request. The current device is signed out of the long-lived
         // option too and simply opts in again at the next login.
         $this->remember->forgetAllForUser($user->id);
+        // Re-read: `$user` still carries the forced-change flag cleared above,
+        // and a flagged account only gets an identity token (JwtService).
+        $user = $this->users->findById($user->id) ?? $user;
         $issued = $this->jwt->issueForUser($user, $this->permissions->forUser($user->id));
         $this->sessions->record($issued['jti'], $user->companyId, $user->isAdmin, $issued['expiresAt'], $user->id);
 

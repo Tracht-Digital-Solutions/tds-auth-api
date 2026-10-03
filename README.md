@@ -31,20 +31,35 @@ Admin write endpoints (`/admin/users`, `/admin/sessions`, …) are gated by a
 per-admin JWT (`admin=true`); the shared `ADMIN_TOKEN` Bearer survives only for
 the server-to-server call above (as `SERVICE_TOKEN`).
 
-JWT claims:
+The full route list is `src/Bootstrap.php`; the table above is the public
+surface.
+
+JWT claims (`JwtService::issuePrincipal`):
 
 ```json
 {
   "iss": "https://api.tracht-digital.de/auth",
-  "sub": "admin" | "<customer_id>",
-  "aud": "tds-services",
+  "sub": "<uid>",
   "iat": 1700000000,
   "exp": 1700003600,
   "jti": "uuid-v4",
-  "admin": true,
-  "customer_id": null | 42
+  "uid": 42,
+  "email": "…",
+  "name": "…",
+  "admin": false,
+  "support_agent": false,
+  "blog_author": false,
+  "company_id": 7,
+  "customer_id": 7,
+  "permissions": ["…"],
+  "companies": [{ "id": 7, "permissions": ["…"], "admin": false }]
 }
 ```
+
+`customer_id` is a deprecated alias of `company_id`. An account flagged
+`must_change_password` gets an IDENTITY-only token (`admin:false`, no company,
+no permissions) until `PUT /password` issues the full one — the seeded admin's
+well-known password grants nothing elsewhere.
 
 ## Local dev
 
@@ -76,9 +91,9 @@ details in `INSTALL.md` §5 and `AGENTS.md`.
 Quick test:
 
 ```bash
-curl -X POST http://localhost:8003/admin/login \
+curl -X POST http://localhost:8003/login \
   -H 'Content-Type: application/json' \
-  -d '{"token":"YOUR_ADMIN_TOKEN_FROM_ENV"}' -i
+  -d '{"email":"admin@local.test","password":"…"}' -i
 # 200 OK + JWT in body and Set-Cookie
 ```
 

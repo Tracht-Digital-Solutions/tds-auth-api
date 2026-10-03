@@ -84,41 +84,46 @@ final class PdoAppUserRepository implements AppUserRepository
         string $status = 'active',
     ): int {
         $perms = Permissions::sanitize($permissions);
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO app_user (email, password_hash, name, is_admin, company_id, permissions, status, created_at, updated_at) '
-            . 'VALUES (:email, :hash, :name, :admin, :cid, :perms, :status, NOW(), NOW())'
-        );
-        $stmt->execute([
-            'email' => $email,
-            'hash' => $passwordHash,
-            'name' => $name,
-            'admin' => $isAdmin ? 1 : 0,
-            'cid' => $companyId,
-            'perms' => json_encode($perms),
-            'status' => $status,
-        ]);
 
-        $id = (int) $this->pdo->lastInsertId();
-
-        // Mirror the primary company as a membership row so the many-to-many
-        // is the single source of truth from creation onward.
-        //
-        // NOT dead code: the admin user editor passes `null` here and calls
-        // `setMemberships()` afterwards, but the service-token onboarding route
-        // (`POST /admin/customer-credentials`, used by tds-customer-api) passes
-        // a real id and nothing else. Without this the account would have
-        // `app_user.company_id` set and no membership at all, so its token
-        // would carry an empty `companies` claim and the portal would show it
-        // nothing.
-        if ($companyId !== null) {
-            $ins = $this->pdo->prepare(
-                'INSERT INTO app_user_company (user_id, company_id, permissions, created_at) '
-                . 'VALUES (:uid, :cid, :perms, NOW())'
+        // Both rows or neither: an account without its membership row carries
+        // an empty `companies` claim and sees nothing in the portal.
+        return Transaction::run($this->pdo, function () use ($email, $passwordHash, $name, $isAdmin, $companyId, $perms, $status): int {
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO app_user (email, password_hash, name, is_admin, company_id, permissions, status, created_at, updated_at) '
+                . 'VALUES (:email, :hash, :name, :admin, :cid, :perms, :status, NOW(), NOW())'
             );
-            $ins->execute(['uid' => $id, 'cid' => $companyId, 'perms' => json_encode($perms)]);
-        }
+            $stmt->execute([
+                'email' => $email,
+                'hash' => $passwordHash,
+                'name' => $name,
+                'admin' => $isAdmin ? 1 : 0,
+                'cid' => $companyId,
+                'perms' => json_encode($perms),
+                'status' => $status,
+            ]);
 
-        return $id;
+            $id = (int) $this->pdo->lastInsertId();
+
+            // Mirror the primary company as a membership row so the many-to-many
+            // is the single source of truth from creation onward.
+            //
+            // NOT dead code: the admin user editor passes `null` here and calls
+            // `setMemberships()` afterwards, but the service-token onboarding route
+            // (`POST /admin/customer-credentials`, used by tds-customer-api) passes
+            // a real id and nothing else. Without this the account would have
+            // `app_user.company_id` set and no membership at all, so its token
+            // would carry an empty `companies` claim and the portal would show it
+            // nothing.
+            if ($companyId !== null) {
+                $ins = $this->pdo->prepare(
+                    'INSERT INTO app_user_company (user_id, company_id, permissions, created_at) '
+                    . 'VALUES (:uid, :cid, :perms, NOW())'
+                );
+                $ins->execute(['uid' => $id, 'cid' => $companyId, 'perms' => json_encode($perms)]);
+            }
+
+            return $id;
+        });
     }
 
     public function setMemberships(int $userId, array $memberships): void
@@ -143,8 +148,9 @@ final class PdoAppUserRepository implements AppUserRepository
             ];
         }
 
-        $this->pdo->beginTransaction();
-        try {
+        // Joins an outer transaction (the seat check) instead of opening a
+        // second one, which PDO refuses — see Transaction.
+        Transaction::run($this->pdo, function () use ($userId, $byCompany): void {
             $del = $this->pdo->prepare('DELETE FROM app_user_company WHERE user_id = :uid');
             $del->execute(['uid' => $userId]);
 
@@ -180,12 +186,7 @@ final class PdoAppUserRepository implements AppUserRepository
                 'cid' => $primaryCid,
                 'perms' => json_encode($primaryPerms),
             ]);
-
-            $this->pdo->commit();
-        } catch (\Throwable $e) {
-            $this->pdo->rollBack();
-            throw $e;
-        }
+        });
     }
 
     public function setCompanyMembership(

@@ -86,6 +86,16 @@ final class JwtService
      */
     public function issueForUser(AppUser $user, ?callable $resolver = null): array
     {
+        // A forced password change is not a completed login. The account
+        // gets an IDENTITY-only token — no admin flag, no companies, no
+        // permissions — good for /me and PUT /password and nothing else.
+        // ChangePasswordAction then issues the full token. Before, the
+        // seeded bootstrap admin's well-known password bought full admin
+        // access on every service; only the login UI asked for a change.
+        if ($user->mustChangePassword) {
+            return $this->issuePrincipal(false, null, $user->id, [], email: $user->email, name: $user->label());
+        }
+
         // Non-admins carry their company memberships; the flat
         // company_id/permissions claims mirror the primary company. Admins
         // bypass permissions, so they carry none — and no memberships either:

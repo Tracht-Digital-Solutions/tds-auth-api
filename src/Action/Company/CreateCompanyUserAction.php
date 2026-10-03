@@ -104,6 +104,7 @@ final class CreateCompanyUserAction
             $body,
             $companyId,
             $permissions,
+            $denies,
             $groupIds,
             $existing,
         ): void {

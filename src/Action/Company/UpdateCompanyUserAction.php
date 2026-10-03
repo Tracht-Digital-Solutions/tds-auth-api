@@ -110,6 +110,21 @@ final class UpdateCompanyUserAction
         }
 
         // Account-level fields the company admin may touch.
+        //
+        // `email` and `status` are ACCOUNT-wide: changing them for somebody who
+        // also belongs to another company would sign that person out of, or
+        // rename them in, a company this admin has no say over. Only for an
+        // account that belongs to this company alone.
+        $otherCompanies = array_filter(
+            $target->memberships,
+            static fn ($m): bool => $m->companyId !== $companyId,
+        );
+        if ($otherCompanies !== [] && (array_key_exists('email', $body) || array_key_exists('status', $body))) {
+            return $this->json($response, 403, [
+                'error' => 'This account also belongs to another company; only a platform admin can change its email or status',
+                'code' => 'shared_account',
+            ]);
+        }
         $fields = [];
         if (array_key_exists('name', $body)) {
             $fields['name'] = self::trimmed($body['name'], 200);
@@ -126,7 +141,7 @@ final class UpdateCompanyUserAction
         }
         if (array_key_exists('email', $body)) {
             $email = strtolower(trim((string) $body['email']));
-            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || strlen($email) > 254) {
                 return $this->json($response, 422, ['error' => 'Valid email required']);
             }
             if ($this->users->emailExists($email, $targetId)) {

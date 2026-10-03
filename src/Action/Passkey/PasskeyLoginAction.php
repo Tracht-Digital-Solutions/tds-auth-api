@@ -6,6 +6,7 @@ namespace Tds\AuthApi\Action\Passkey;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
+use Tds\AuthApi\Service\ClientIp;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\ChallengeStore;
 use Tds\AuthApi\Service\CookieFactory;
@@ -51,7 +52,7 @@ final class PasskeyLoginAction
         // Rate-limited like the password login: signature verification is
         // expensive, and a shared bucket keeps the two paths from being played
         // off against each other.
-        if (!$this->rateLimiter->check('passkey:' . $this->clientIp($request))['allowed']) {
+        if (!$this->rateLimiter->check('passkey:' . ClientIp::from($request))['allowed']) {
             return $this->json($response, 429, ['error' => 'Too many login attempts. Please try again later.']);
         }
 
@@ -129,17 +130,22 @@ final class PasskeyLoginAction
             'isBlogAuthor' => $user->isBlogAuthor,
             'avatarUrl' => $user->avatarUrl,
             'companies' => $user->isAdmin ? [] : array_map(static fn ($m) => $m->toArray(), $user->memberships),
+            'companyId' => $user->companyId,
+            // Deprecated alias, emitted for one release — same as LoginAction.
             'customerId' => $user->companyId,
             'permissions' => $user->isAdmin ? [] : $user->permissions,
             // A passkey IS the stronger factor — it does not clear a pending
             // password change, but it also never triggers one on its own.
             'mustChangePassword' => $user->mustChangePassword,
-            'remembered' => $rememberMe,
+            'remembered' => $rememberMe && !$user->mustChangePassword,
         ])
             ->withHeader('Set-Cookie', $this->cookies->set($issued['token'], $this->jwt->ttl()))
             ->withAddedHeader('Set-Cookie', $this->challenges->expire());
 
-        if ($rememberMe) {
+        // A pending password change is not a completed login: no 30-day
+        // credential before the user has set a password of their own (the same
+        // rule as LoginAction).
+        if ($rememberMe && !$user->mustChangePassword) {
             $result = $result->withAddedHeader('Set-Cookie', $this->rememberCookies->set(
                 $this->remember->issue($user->id, $request->getHeaderLine('User-Agent') ?: null),
                 $this->remember->ttl(),
@@ -157,18 +163,6 @@ final class PasskeyLoginAction
         return is_string($decoded) ? $decoded : '';
     }
 
-    private function clientIp(ServerRequestInterface $request): string
-    {
-        $forwarded = $request->getHeaderLine('X-Forwarded-For');
-        if ($forwarded !== '') {
-            return trim(explode(',', $forwarded)[0]);
-        }
-        $real = $request->getHeaderLine('X-Real-IP');
-        if ($real !== '') {
-            return $real;
-        }
-        return $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown';
-    }
 
     /** @param array<string,mixed> $payload */
     private function json(Response $response, int $status, array $payload): ResponseInterface

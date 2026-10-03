@@ -156,8 +156,9 @@ final class PdoGroupRepository implements GroupRepository
             static fn (int $id): bool => $id > 0,
         )));
 
-        $this->pdo->beginTransaction();
-        try {
+        // Joins an outer transaction (the seat check) instead of opening a
+        // second one, which PDO refuses — see Transaction.
+        Transaction::run($this->pdo, function () use ($userId, $companyId, $ids): void {
             // Scoped delete: another company's assignments for this user must
             // survive. A company admin only ever reaches their own scope.
             $del = $this->pdo->prepare(
@@ -173,12 +174,7 @@ final class PdoGroupRepository implements GroupRepository
                     $ins->execute(['uid' => $userId, 'gid' => $groupId, 'cid' => $companyId]);
                 }
             }
-
-            $this->pdo->commit();
-        } catch (\Throwable $e) {
-            $this->pdo->rollBack();
-            throw $e;
-        }
+        });
     }
 
     public function memberCount(int $groupId): int
