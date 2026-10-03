@@ -54,6 +54,7 @@ use Tds\AuthApi\Infrastructure\PdoAvatarRepository;
 use Tds\AuthApi\Infrastructure\PdoCompanyPolicyRepository;
 use Tds\AuthApi\Infrastructure\PdoGroupRepository;
 use Tds\AuthApi\Infrastructure\PdoPasskeyRepository;
+use Tds\AuthApi\Infrastructure\PdoUsedChallenges;
 use Tds\AuthApi\Infrastructure\PdoRememberTokenRepository;
 use Tds\AuthApi\Infrastructure\PdoSessionRepository;
 use Tds\AuthApi\Middleware\AdminAuthMiddleware;
@@ -70,6 +71,7 @@ use Tds\AuthApi\Service\GroupRepository;
 use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\PasskeyRepository;
+use Tds\AuthApi\Service\UsedChallenges;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\PdoRateLimiter;
 use Tds\AuthApi\Service\RateLimiter;
@@ -176,6 +178,7 @@ final class Bootstrap
         ));
 
         $container->set(PasskeyRepository::class, fn (Container $c) => new PdoPasskeyRepository($c->get(PDO::class)));
+        $container->set(UsedChallenges::class, fn (Container $c) => new PdoUsedChallenges($c->get(PDO::class)));
 
         // Passkeys. The RP ID is the REGISTRABLE DOMAIN, not the login host, so
         // one passkey works on auth./management./app./tools. — see WebAuthnFactory.

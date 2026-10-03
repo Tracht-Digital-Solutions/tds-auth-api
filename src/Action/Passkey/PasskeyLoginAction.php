@@ -9,6 +9,7 @@ use Slim\Psr7\Response;
 use Tds\AuthApi\Service\ClientIp;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\ChallengeStore;
+use Tds\AuthApi\Service\UsedChallenges;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\PasskeyRepository;
@@ -44,6 +45,7 @@ final class PasskeyLoginAction
         private readonly RememberTokenService $remember,
         private readonly RememberCookieFactory $rememberCookies,
         private readonly PermissionResolver $permissions,
+        private readonly UsedChallenges $usedChallenges,
     ) {
     }
 
@@ -61,6 +63,12 @@ final class PasskeyLoginAction
         );
         if ($challenge === null) {
             return $this->json($response, 400, ['error' => 'Challenge expired. Bitte erneut versuchen.']);
+        }
+        // Single use on the SERVER: clearing the cookie in the response did
+        // not stop a captured cookie + assertion from being sent again.
+        if (!$this->usedChallenges->claim($challenge, time() + 300)) {
+            return $this->json($response, 400, ['error' => 'Challenge already used. Bitte erneut versuchen.'])
+                ->withHeader('Set-Cookie', $this->challenges->expire());
         }
 
         $body = (array) $request->getParsedBody();
