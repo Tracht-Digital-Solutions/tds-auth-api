@@ -62,6 +62,7 @@ use Tds\AuthApi\Middleware\CompanyAdminMiddleware;
 use Tds\AuthApi\Middleware\CorsMiddleware;
 use Tds\AuthApi\Middleware\JwtAuthMiddleware;
 use Tds\AuthApi\Middleware\LazyMiddleware;
+use Tds\AuthApi\Middleware\SignedInHintMiddleware;
 use Tds\AuthApi\Service\AppUserRepository;
 use Tds\AuthApi\Service\AvatarRepository;
 use Tds\AuthApi\Service\AvatarService;
@@ -219,6 +220,15 @@ final class Bootstrap
         // middleware 405s an OPTIONS preflight (no OPTIONS routes are
         // registered) before CorsMiddleware can short-circuit it, and the
         // browser blocks every cross-origin JSON/Authorization request.
+        // The script-readable "signed in on this browser" hint, derived from the
+        // credential cookies every response writes (see the class). Added
+        // before CORS so CORS stays outermost.
+        $app->add(new SignedInHintMiddleware(
+            [self::env('COOKIE_NAME', 'tds_session'), self::env('REMEMBER_COOKIE_NAME', 'tds_remember')],
+            self::env('COOKIE_NAME', 'tds_session'),
+            self::env('COOKIE_DOMAIN', '.tracht-digital.de'),
+            self::isProduction(),
+        ));
         $app->add(new CorsMiddleware(self::corsOrigins()));
 
         // Per-admin JWT gate (replaces the shared ADMIN_TOKEN for the UI) and a
