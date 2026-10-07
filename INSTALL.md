@@ -126,7 +126,7 @@ your own password.
 
 **More admins / recovery:** `composer create-admin -- you@example.com [password]`
 (promotes an existing user or creates one; generates a strong password if none
-is given). See `AGENTS.md` → *Bootstrapping the first admin* for detail.
+is given). See `docs/agents/endpoints.md` (*Bootstrapping the first admin*) for detail.
 
 ## 6. Verify
 
