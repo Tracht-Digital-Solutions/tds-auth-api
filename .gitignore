@@ -20,3 +20,9 @@ Desktop.ini
 # Editor backups
 *.swp
 *~
+
+# Local agent state
+.claude/
+
+# Not tracked: vendor/ is assembled in CI or on the host
+/composer.lock
