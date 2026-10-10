@@ -56,6 +56,9 @@ migration never imports a moving constant).
 - **The assignment carries the company**, not the membership: "Buchhaltung" at A, "Nur Lesen" at B.
 - **Companies may own groups** if `auth_company_policy.allow_custom_groups`, capped by the same ceiling.
 - **No assignments were backfilled**; inferring a group from a matching permission set is a guess.
+- **"Vermittler"** (`referral_partner`, 2026-10-11) carries only `referrals:partner` for the
+  Empfehlungsprogramm. A partner still needs a company membership; permissions live in the per-company
+  claim.
 
 ## Effective permissions
 
