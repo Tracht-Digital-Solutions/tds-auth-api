@@ -20,6 +20,10 @@ missing env var once left zero allowed origins and blocked every login preflight
 Rotates the access token, carrying `uid`, `permissions`, `email` and `name` forward (verifies signature
 and session revocation). It re-reads the user and refuses on `!isActive()` or `mustChangePassword`.
 
+**`auth_time` is the session's identity.** Every token carries the sign-in time (OIDC `auth_time`);
+refresh copies it, a login or a remembered re-login stamps a new one. `jti` and `iat` rotate hourly and
+cannot answer "since sign-in". The panel's setup wizard snoozes items until the next `auth_time`.
+
 **A non-admin without a company membership is legitimate.** Refresh used to throw (500) for such accounts
 while login succeeded, leaving users degraded an hour after sign-in.
 

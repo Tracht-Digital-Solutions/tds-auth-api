@@ -168,6 +168,29 @@ final class RefreshActionTest extends TestCase
         self::assertSame('Julian', $claims['name']);
     }
 
+    public function test_keeps_the_sign_in_time_across_the_hourly_rotation(): void
+    {
+        // The panel's setup wizard snoozes items "until the next sign-in" by
+        // `auth_time`. If refresh restamped it, a snoozed item would come back
+        // every hour instead of at the next login.
+        $signedIn = time() - 5400;
+        $issued = $this->jwt->issuePrincipal(false, 7, 12, ['tickets:read'], authTime: $signedIn);
+        $this->sessions->record($issued['jti'], 7, false, $issued['expiresAt'], 12);
+
+        $response = $this->refresh(bearer: $issued['token']);
+
+        $claims = $this->jwt->verify($this->jsonBody($response)['token']);
+        self::assertSame($signedIn, $claims['auth_time']);
+        self::assertNotSame($issued['jti'], $claims['jti']);
+    }
+
+    public function test_a_fresh_login_token_stamps_its_own_sign_in_time(): void
+    {
+        $before = time();
+        $claims = $this->jwt->verify($this->jwt->issueAdmin()['token']);
+        self::assertGreaterThanOrEqual($before, $claims['auth_time']);
+    }
+
     public function test_cookie_fallback_used_when_no_authorization_header(): void
     {
         $issued = $this->jwt->issueAdmin();

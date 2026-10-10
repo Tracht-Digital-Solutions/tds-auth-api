@@ -96,7 +96,11 @@ final class RefreshAction
         // Carry the principal forward without a DB lookup. Authorization
         // changes take effect via session revocation (see UpdateUserAction),
         // which forces a fresh login rather than relying on refresh.
-        $issued = $this->jwt->issuePrincipal($admin, $companyId, $uid, $permissions, $supportAgent, $companies, $blogAuthor, $email, $name);
+        // The sign-in time of the session survives the hourly rotation. A token from
+        // before this claim existed starts counting now.
+        $authTime = isset($claims['auth_time']) && is_int($claims['auth_time']) ? $claims['auth_time'] : null;
+
+        $issued = $this->jwt->issuePrincipal($admin, $companyId, $uid, $permissions, $supportAgent, $companies, $blogAuthor, $email, $name, $authTime);
 
         $this->sessions->record($issued['jti'], $companyId, $admin, $issued['expiresAt'], $uid);
 

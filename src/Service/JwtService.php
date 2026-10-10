@@ -151,7 +151,7 @@ final class JwtService
      * @param list<array{id:int, permissions:list<string>, admin?:bool}> $companies
      * @return array{token: string, jti: string, expiresAt: int}
      */
-    public function issuePrincipal(bool $admin, ?int $companyId, ?int $uid, array $permissions, bool $supportAgent = false, array $companies = [], bool $blogAuthor = false, ?string $email = null, ?string $name = null): array
+    public function issuePrincipal(bool $admin, ?int $companyId, ?int $uid, array $permissions, bool $supportAgent = false, array $companies = [], bool $blogAuthor = false, ?string $email = null, ?string $name = null, ?int $authTime = null): array
     {
         $subject = $uid !== null
             ? (string) $uid
@@ -175,7 +175,7 @@ final class JwtService
             'name' => $name,
             'permissions' => array_values($permissions),
             'companies' => array_values($companies),
-        ], $subject);
+        ], $subject, $authTime);
     }
 
     /**
@@ -244,7 +244,7 @@ final class JwtService
      * @param array{admin:bool, support_agent:bool, blog_author:bool, customer_id:int|null, uid:int|null, permissions:list<string>, companies:list<array{id:int, permissions:list<string>}>} $extra
      * @return array{token: string, jti: string, expiresAt: int}
      */
-    private function issue(array $extra, string $subject): array
+    private function issue(array $extra, string $subject, ?int $authTime = null): array
     {
         $now = time();
         $exp = $now + $this->ttlSeconds;
@@ -257,6 +257,11 @@ final class JwtService
             'iat' => $now,
             'exp' => $exp,
             'jti' => $jti,
+            // When the person actually signed in (OpenID Connect `auth_time`).
+            // A refresh carries it forward; a login or a remembered re-login
+            // starts a new one. Services use it as the identity of a SESSION —
+            // `jti` and `iat` change every hour and cannot say "since login".
+            'auth_time' => $authTime ?? $now,
         ], $extra);
 
         $token = JWT::encode($payload, $this->privateKeyPem, 'RS256', $this->keyId);
