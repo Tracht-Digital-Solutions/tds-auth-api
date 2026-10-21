@@ -11,6 +11,8 @@
 | `GET /me` | Current principal, incl. `expiresAt` (Unix seconds from `exp`, or `null`) so frontends can bounce an expired session before paint |
 | `PUT /password` (alias `PUT /customer/password`) | Change own password. Revokes **all** the user's sessions and remember tokens, then issues a fresh session for this device |
 | `POST /refresh` | Rotate the access token; see [sessions-and-keys.md](sessions-and-keys.md) |
+| `POST /password-reset` | `{email, lang}` → **always 202** for a well-formed address (no account oracle). An active account gets a one-time token (SHA-256 stored, 1 h, newest only) mailed via tds-core-frontend-api |
+| `POST /password-reset/confirm` | `{token, new}` → 204. Rules checked before the token is consumed; revokes every session and remember token, clears `mustChangePassword`. No session issued — the user signs in |
 | `GET /.well-known/jwks.json` | Public key as JWKS |
 | Passkeys | See [sessions-and-keys.md](sessions-and-keys.md#passkeys-webauthn) |
 

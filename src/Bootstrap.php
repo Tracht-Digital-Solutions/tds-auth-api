@@ -30,6 +30,7 @@ use Tds\AuthApi\Action\Company\ListCompanyUsersAction;
 use Tds\AuthApi\Action\Company\RemoveCompanyUserAction;
 use Tds\AuthApi\Action\Company\UpdateCompanyUserAction;
 use Tds\AuthApi\Action\ChangePasswordAction;
+use Tds\AuthApi\Action\ConfirmPasswordResetAction;
 use Tds\AuthApi\Action\DeleteAvatarAction;
 use Tds\AuthApi\Action\HealthAction;
 use Tds\AuthApi\Action\JwksAction;
@@ -37,6 +38,7 @@ use Tds\AuthApi\Action\ListMySessionsAction;
 use Tds\AuthApi\Action\LoginAction;
 use Tds\AuthApi\Action\MeAction;
 use Tds\AuthApi\Action\RefreshAction;
+use Tds\AuthApi\Action\RequestPasswordResetAction;
 use Tds\AuthApi\Action\RevokeMySessionAction;
 use Tds\AuthApi\Action\ShowAvatarAction;
 use Tds\AuthApi\Action\UpdateMeAction;
@@ -50,10 +52,12 @@ use Tds\AuthApi\Action\Passkey\PasskeyLoginAction;
 use Tds\AuthApi\Action\Passkey\RegisterAction as RegisterPasskeyAction;
 use Tds\AuthApi\Action\Passkey\RegisterOptionsAction as PasskeyRegisterOptionsAction;
 use Tds\AuthApi\Infrastructure\PdoAppUserRepository;
+use Tds\AuthApi\Infrastructure\HttpPasswordResetMailer;
 use Tds\AuthApi\Infrastructure\PdoAvatarRepository;
 use Tds\AuthApi\Infrastructure\PdoCompanyPolicyRepository;
 use Tds\AuthApi\Infrastructure\PdoGroupRepository;
 use Tds\AuthApi\Infrastructure\PdoPasskeyRepository;
+use Tds\AuthApi\Infrastructure\PdoPasswordResetRepository;
 use Tds\AuthApi\Infrastructure\PdoUsedChallenges;
 use Tds\AuthApi\Infrastructure\PdoRememberTokenRepository;
 use Tds\AuthApi\Infrastructure\PdoSessionRepository;
@@ -72,6 +76,8 @@ use Tds\AuthApi\Service\GroupRepository;
 use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\PasskeyRepository;
+use Tds\AuthApi\Service\PasswordResetMailer;
+use Tds\AuthApi\Service\PasswordResetRepository;
 use Tds\AuthApi\Service\UsedChallenges;
 use Tds\AuthApi\Service\JwtService;
 use Tds\AuthApi\Service\PdoRateLimiter;
@@ -208,6 +214,23 @@ final class Bootstrap
             ttlSeconds: (int) self::env('REMEMBER_TTL_SECONDS', self::env('JWT_REFRESH_TTL_SECONDS', (string) (60 * 60 * 24 * 30))),
         ));
 
+        // Password reset (tds-auth-api#5). The mail goes out through
+        // tds-core-frontend-api, which owns the panel's SMTP settings; this
+        // service only issues the token and calls it with the service token.
+        $container->set(PasswordResetRepository::class, fn (Container $c) => new PdoPasswordResetRepository($c->get(PDO::class)));
+        $container->set(PasswordResetMailer::class, fn () => new HttpPasswordResetMailer(
+            frontendApiUrl: self::frontendApiUrl(),
+            serviceToken: self::serviceToken(),
+        ));
+        $container->set(RequestPasswordResetAction::class, fn (Container $c) => new RequestPasswordResetAction(
+            users: $c->get(AppUserRepository::class),
+            resets: $c->get(PasswordResetRepository::class),
+            mailer: $c->get(PasswordResetMailer::class),
+            rateLimiter: $c->get(RateLimiter::class),
+            resetUrl: self::env('PASSWORD_RESET_URL', 'https://auth.tracht-digital.de/passwort-vergessen'),
+            ttlSeconds: (int) self::env('PASSWORD_RESET_TTL_SECONDS', '3600'),
+        ));
+
         AppFactory::setContainer($container);
         $app = AppFactory::create();
         $app->addBodyParsingMiddleware();
@@ -253,8 +276,7 @@ final class Bootstrap
         // until SERVICE_TOKEN is set.
         // `.env.example` ships `SERVICE_TOKEN=` EMPTY, so "unset" has to include
         // empty — `env()`'s default only applies to an absent key.
-        $serviceToken = self::env('SERVICE_TOKEN', '');
-        $service = new AdminAuthMiddleware($serviceToken !== '' ? $serviceToken : self::env('ADMIN_TOKEN', ''));
+        $service = new AdminAuthMiddleware(self::serviceToken());
 
         $app->get('/healthz', HealthAction::class);
 
@@ -351,6 +373,11 @@ final class Bootstrap
         $app->post('/passkeys', RegisterPasskeyAction::class)->add($sessionAuth);
         $app->delete('/passkeys/{id:[0-9]+}', DeletePasskeyAction::class)->add($sessionAuth);
 
+        // Forgotten password: both unauthenticated by definition. The request
+        // answers 202 for any address; the confirm consumes a one-time token.
+        $app->post('/password-reset', RequestPasswordResetAction::class);
+        $app->post('/password-reset/confirm', ConfirmPasswordResetAction::class);
+
         $app->post('/refresh', RefreshAction::class);
         $app->get('/.well-known/jwks.json', JwksAction::class);
 
@@ -372,6 +399,31 @@ final class Bootstrap
     {
         $env = strtolower(trim(self::env('APP_ENV', 'production')));
         return in_array($env, ['production', 'prod'], true);
+    }
+
+    /**
+     * The service-to-service token, in both directions: customer-api calls in
+     * with it, and the password-reset mail call goes out with it.
+     */
+    private static function serviceToken(): string
+    {
+        $token = self::env('SERVICE_TOKEN', '');
+        return $token !== '' ? $token : self::env('ADMIN_TOKEN', '');
+    }
+
+    /**
+     * Base URL of tds-core-frontend-api. Defaults to the gateway origin, taken
+     * from JWT_ISSUER without its `/auth` prefix: the gateway sends every
+     * non-`/auth`, non-`/customer` path to the frontend service.
+     */
+    private static function frontendApiUrl(): string
+    {
+        $url = self::env('FRONTEND_API_URL', '');
+        if ($url !== '') {
+            return rtrim($url, '/');
+        }
+        $issuer = rtrim(self::env('JWT_ISSUER', 'https://api.tracht-digital.de/auth'), '/');
+        return (string) preg_replace('#/auth$#', '', $issuer);
     }
 
     private static function env(string $key, ?string $default = null): string

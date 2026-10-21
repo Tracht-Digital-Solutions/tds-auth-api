@@ -102,3 +102,17 @@ SELECT COUNT(DISTINCT company_id) FROM tds_auth.app_user_company
 A non-zero result means memberships point at companies that do not exist in the
 canonical table; fix that before deleting the legacy fallback, or portal users
 lose their company.
+
+## Forgotten password
+
+`POST /password-reset` mails a one-time link; the mail is sent by **tds-core-frontend-api**
+(`POST /internal/mail/password-reset`) with the SMTP settings from the panel
+(*Einstellungen → E-Mail*). Two values have to line up on the host:
+
+1. **The service token.** auth sends its `SERVICE_TOKEN` (falls back to `ADMIN_TOKEN`); the
+   frontend service accepts its own `SERVICE_TOKEN` (falls back to `ADMIN_TOKEN`). Put the same
+   value into `services/frontend/.env`. Without it the frontend answers 503 and no mail goes out.
+2. **`FRONTEND_API_URL`** — only if the gateway is not at the `JWT_ISSUER` origin.
+
+The request always answers 202, so a misconfiguration is invisible to the user. It shows in the
+PHP error log as `[tds-auth-api] password reset: mail call … failed`.
