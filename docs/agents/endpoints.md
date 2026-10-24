@@ -13,6 +13,8 @@
 | `POST /refresh` | Rotate the access token; see [sessions-and-keys.md](sessions-and-keys.md) |
 | `POST /password-reset` | `{email, lang}` → **always 202** for a well-formed address (no account oracle). An active account gets a one-time token (SHA-256 stored, 1 h, newest only) mailed via tds-core-frontend-api |
 | `POST /password-reset/confirm` | `{token, new}` → 204. Rules checked before the token is consumed; revokes every session and remember token, clears `mustChangePassword`. No session issued — the user signs in |
+| `POST /register` | `{name, email, password, lang}` → **always 202** for an acceptable request (no account oracle). A new or still `pending` address gets a confirmation mail (24 h) via tds-core-frontend-api; an active or disabled one gets nothing. New accounts are `pending`: no usable password, no company, no permissions. `SELF_REGISTRATION=0` answers 404 |
+| `POST /register/confirm` | `{token}` → 204. Applies the password and name **stored with that token** and activates the account; only a `pending` account is touched. No session issued |
 | `GET /.well-known/jwks.json` | Public key as JWKS |
 | Passkeys | See [sessions-and-keys.md](sessions-and-keys.md#passkeys-webauthn) |
 
@@ -77,3 +79,13 @@ Both paths set `must_change_password`:
 
 The gateway installer creates the first admin directly instead, because the in-process migrator doesn't
 populate the process env the seed reads.
+
+## Self-registration
+
+- **The password rides on the token, never on the pending account.** Whoever registers an address first must
+  not plant a password the real owner later activates with their own link. Each confirmation applies its own
+  request's hash; only the mailbox owner can click any of them. Earlier tokens of a pending account stay valid.
+- A pending account cannot sign in: its `password_hash` is a hash of random bytes nobody saw.
+- Rate-limited per client address (`register:`) and per mailbox (`register-account:`).
+- Env: `ACCOUNT_CONFIRM_URL` (default `https://auth.tracht-digital.de/registrieren`, the page reads `?token`),
+  `ACCOUNT_CONFIRM_TTL_SECONDS` (86400), `SELF_REGISTRATION` (`1`).

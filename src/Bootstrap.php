@@ -31,6 +31,7 @@ use Tds\AuthApi\Action\Company\RemoveCompanyUserAction;
 use Tds\AuthApi\Action\Company\UpdateCompanyUserAction;
 use Tds\AuthApi\Action\ChangePasswordAction;
 use Tds\AuthApi\Action\ConfirmPasswordResetAction;
+use Tds\AuthApi\Action\ConfirmRegistrationAction;
 use Tds\AuthApi\Action\DeleteAvatarAction;
 use Tds\AuthApi\Action\HealthAction;
 use Tds\AuthApi\Action\JwksAction;
@@ -38,6 +39,7 @@ use Tds\AuthApi\Action\ListMySessionsAction;
 use Tds\AuthApi\Action\LoginAction;
 use Tds\AuthApi\Action\MeAction;
 use Tds\AuthApi\Action\RefreshAction;
+use Tds\AuthApi\Action\RegisterAction;
 use Tds\AuthApi\Action\RequestPasswordResetAction;
 use Tds\AuthApi\Action\RevokeMySessionAction;
 use Tds\AuthApi\Action\ShowAvatarAction;
@@ -52,11 +54,13 @@ use Tds\AuthApi\Action\Passkey\PasskeyLoginAction;
 use Tds\AuthApi\Action\Passkey\RegisterAction as RegisterPasskeyAction;
 use Tds\AuthApi\Action\Passkey\RegisterOptionsAction as PasskeyRegisterOptionsAction;
 use Tds\AuthApi\Infrastructure\PdoAppUserRepository;
+use Tds\AuthApi\Infrastructure\HttpAccountConfirmMailer;
 use Tds\AuthApi\Infrastructure\HttpPasswordResetMailer;
 use Tds\AuthApi\Infrastructure\PdoAvatarRepository;
 use Tds\AuthApi\Infrastructure\PdoCompanyPolicyRepository;
 use Tds\AuthApi\Infrastructure\PdoGroupRepository;
 use Tds\AuthApi\Infrastructure\PdoPasskeyRepository;
+use Tds\AuthApi\Infrastructure\PdoAccountConfirmRepository;
 use Tds\AuthApi\Infrastructure\PdoPasswordResetRepository;
 use Tds\AuthApi\Infrastructure\PdoUsedChallenges;
 use Tds\AuthApi\Infrastructure\PdoRememberTokenRepository;
@@ -76,6 +80,8 @@ use Tds\AuthApi\Service\GroupRepository;
 use Tds\AuthApi\Service\PermissionResolver;
 use Tds\AuthApi\Service\CookieFactory;
 use Tds\AuthApi\Service\PasskeyRepository;
+use Tds\AuthApi\Service\AccountConfirmMailer;
+use Tds\AuthApi\Service\AccountConfirmRepository;
 use Tds\AuthApi\Service\PasswordResetMailer;
 use Tds\AuthApi\Service\PasswordResetRepository;
 use Tds\AuthApi\Service\UsedChallenges;
@@ -231,6 +237,29 @@ final class Bootstrap
             ttlSeconds: (int) self::env('PASSWORD_RESET_TTL_SECONDS', '3600'),
         ));
 
+        // Self-registration (Online-Tools premium). Same mail path as the
+        // reset; the account stays `pending` until its address is confirmed.
+        // SELF_REGISTRATION=0 turns the route off (404).
+        $container->set(AccountConfirmRepository::class, fn (Container $c) => new PdoAccountConfirmRepository($c->get(PDO::class)));
+        $container->set(AccountConfirmMailer::class, fn () => new HttpAccountConfirmMailer(
+            frontendApiUrl: self::frontendApiUrl(),
+            serviceToken: self::serviceToken(),
+        ));
+        $container->set(RegisterAction::class, fn (Container $c) => new RegisterAction(
+            users: $c->get(AppUserRepository::class),
+            confirms: $c->get(AccountConfirmRepository::class),
+            mailer: $c->get(AccountConfirmMailer::class),
+            rateLimiter: $c->get(RateLimiter::class),
+            confirmUrl: self::env('ACCOUNT_CONFIRM_URL', 'https://auth.tracht-digital.de/registrieren'),
+            ttlSeconds: (int) self::env('ACCOUNT_CONFIRM_TTL_SECONDS', '86400'),
+            enabled: self::env('SELF_REGISTRATION', '1') !== '0',
+        ));
+        $container->set(ConfirmRegistrationAction::class, fn (Container $c) => new ConfirmRegistrationAction(
+            users: $c->get(AppUserRepository::class),
+            confirms: $c->get(AccountConfirmRepository::class),
+            rateLimiter: $c->get(RateLimiter::class),
+        ));
+
         AppFactory::setContainer($container);
         $app = AppFactory::create();
         $app->addBodyParsingMiddleware();
@@ -377,6 +406,8 @@ final class Bootstrap
         // answers 202 for any address; the confirm consumes a one-time token.
         $app->post('/password-reset', RequestPasswordResetAction::class);
         $app->post('/password-reset/confirm', ConfirmPasswordResetAction::class);
+        $app->post('/register', RegisterAction::class);
+        $app->post('/register/confirm', ConfirmRegistrationAction::class);
 
         $app->post('/refresh', RefreshAction::class);
         $app->get('/.well-known/jwks.json', JwksAction::class);
